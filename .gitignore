@@ -14,5 +14,7 @@ _*.cjs
 *.bak
 *.bak.*
 *-preview.html
+# ...except the validated v3 preview dashboard (tracked on purpose)
+!v3-preview.html
 .v3-*.md
 .harness-investigation-report.md
