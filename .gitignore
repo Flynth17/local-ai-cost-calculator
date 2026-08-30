@@ -1,0 +1,18 @@
+# Generated usage data (contains local token/cost history — do not commit)
+data/*.json
+
+# Editor / OS noise
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Local scratch / backup / debug artifacts
+_*.js
+_*.cjs
+*.bak
+*.bak.*
+*-preview.html
+.v3-*.md
+.harness-investigation-report.md

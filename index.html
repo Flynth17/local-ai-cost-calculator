@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LM Studio Token Usage</title>
+<script src="vendor/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #2d333b; --text: #e6edf3;
+    --dim: #8b949e; --blue: #4f8ef7; --green: #34d399; --amber: #fbbf24;
+    --red: #f85149; --purple: #a78bfa;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 "Segoe UI", system-ui, sans-serif; padding: 20px; max-width: 1280px; margin-inline: auto; }
+  header { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+  h1 { font-size: 20px; margin: 0; }
+  .meta { color: var(--dim); font-size: 12.5px; }
+  button, select { background: #21262d; color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font: inherit; cursor: pointer; }
+  button:hover, select:hover { border-color: #8b949e; }
+  .controls { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+  .controls label { color: var(--dim); font-size: 13px; display: flex; gap: 8px; align-items: center; }
+  select { min-width: 240px; max-width: 340px; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .seg button { border: none; border-radius: 0; background: transparent; padding: 6px 14px; color: var(--dim); }
+  .seg button.active { background: #30363d; color: var(--text); }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
+  .kpi { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+  .kpi .label { color: var(--dim); font-size: 12px; margin-bottom: 4px; }
+  .kpi .value { font-size: 20px; font-weight: 600; }
+  .kpi .sub { font-size: 11.5px; color: var(--dim); margin-top: 2px; min-height: 14px; }
+  .up { color: var(--green); } .down { color: var(--red); }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .panel h2 { font-size: 14px; margin: 0 0 12px; color: var(--dim); text-transform: uppercase; letter-spacing: .5px; }
+  .chart-wrap { position: relative; height: 340px; }
+  .two-col { display: grid; grid-template-columns: 1.6fr 1fr; gap: 16px; }
+  @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--dim); font-weight: 500; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  td { padding: 7px 8px; border-bottom: 1px solid #21262d; white-space: nowrap; }
+  tr.model-row { cursor: pointer; }
+  tr.model-row:hover { background: #1c2129; }
+  tr.model-row.selected { background: #1f2a3a; }
+  .model-name { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+  .share-bar { height: 6px; border-radius: 3px; background: var(--blue); min-width: 4px; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .price-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .price-row label { color: var(--dim); font-size: 13px; display: flex; align-items: center; gap: 6px; }
+  .price-row input { width: 80px; background: #21262d; border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 5px 8px; font: inherit; text-align: right; }
+  .note { color: var(--dim); font-size: 12px; margin-top: 10px; }
+  footer { color: var(--dim); font-size: 12px; margin-top: 4px; line-height: 1.7; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>LM Studio Token Usage</h1>
+  <div class="meta" id="dataMeta">loading…</div>
+  <button id="refreshBtn" title="Re-read data/usage.json (run: node parse.mjs)">↻ Refresh</button>
+</header>
+
+<section class="controls">
+  <label>Model
+    <select id="modelSel"></select>
+  </label>
+  <div class="seg" id="granSeg">
+    <button data-g="day" class="active">Day</button>
+    <button data-g="week">Week</button>
+    <button data-g="month">Month</button>
+    <button data-g="year">Year</button>
+  </div>
+</section>
+
+<section class="kpis">
+  <div class="kpi"><div class="label">Requests</div><div class="value" id="kReq">–</div><div class="sub" id="kReqSub"></div></div>
+  <div class="kpi"><div class="label">Input tokens (sent)</div><div class="value" id="kIn">–</div><div class="sub" style="color:var(--blue)">prompt / context</div></div>
+  <div class="kpi"><div class="label">Output tokens (received)</div><div class="value" id="kOut">–</div><div class="sub" style="color:var(--green)">generated</div></div>
+  <div class="kpi"><div class="label">Total tokens</div><div class="value" id="kTot">–</div><div class="sub"></div></div>
+  <div class="kpi"><div class="label">Est. cost</div><div class="value" id="kCost">–</div><div class="sub" id="kCostSub"></div></div>
+  <div class="kpi"><div class="label">Trend (last full period vs prev)</div><div class="value" id="kTrend">–</div><div class="sub" id="kTrendSub"></div></div>
+</section>
+
+<section class="panel">
+  <h2>Tokens over time — <span id="chartTitle"></span></h2>
+  <div class="chart-wrap"><canvas id="trendChart"></canvas></div>
+</section>
+
+<div class="two-col">
+  <section class="panel">
+    <h2>Most used models (all data)</h2>
+    <table id="topTable">
+      <thead><tr><th>#</th><th>Model</th><th class="num">Requests</th><th class="num">Tokens</th><th style="width:18%">Share</th><th class="num">Est. cost</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>Token prices (per 1M tokens)</h2>
+    <div class="price-row">
+      <label>Input $<input id="pIn" type="number" step="0.01" min="0"></label>
+      <label>Output $<input id="pOut" type="number" step="0.01" min="0"></label>
+      <label>Cached $<input id="pCached" type="number" step="0.01" min="0"></label>
+    </div>
+    <table id="costTable">
+      <thead><tr><th></th><th class="num">Tokens</th><th class="num">Rate</th><th class="num">Cost</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="note" id="costNote"></div>
+  </section>
+</div>
+
+<footer id="foot"></footer>
+
+<script>
+"use strict";
+const state = { records: [], models: new Map(), gran: "day", model: "__all__", prices: { in: 4.40, out: 22.00, cached: 0.44 } };
+let chart = null;
+
+// ---------- helpers ----------
+const $ = id => document.getElementById(id);
+function fmtTok(n) {
+  if (n >= 1e9) return (n / 1e9).toFixed(2) + "B";
+  if (n >= 1e6) return (n / 1e6).toFixed(2) + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
+  return String(n);
+}
+const fmtMoney = n => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function localDateStr(ts) { const d = new Date(ts); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
+function weekStartTs(ts) { const d = new Date(ts); const off = (d.getDay() + 6) % 7; d.setDate(d.getDate() - off); d.setHours(0,0,0,0); return d.getTime(); }
+
+// ---------- bucketing ----------
+function bucketKey(ts) {
+  const d = new Date(ts);
+  switch (state.gran) {
+    case "day":   return localDateStr(ts);
+    case "week":  return localDateStr(weekStartTs(ts));
+    case "month": return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+    case "year":  return String(d.getFullYear());
+  }
+}
+function bucketLabel(key) {
+  const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  if (state.gran === "day")   return key.slice(5).replace("-", "/");
+  if (state.gran === "week")  { const d = new Date(key + "T00:00:00"); return `${MONTHS[d.getMonth()]} ${d.getDate()} '${String(d.getFullYear()).slice(2)}`; }
+  if (state.gran === "month") { const [y, m] = key.split("-"); return `${MONTHS[+m - 1]} '${y.slice(2)}`; }
+  return key;
+}
+function nextBucketKey(key) { // for filling gaps + trend lookups
+  if (state.gran === "day")   { const d = new Date(key + "T00:00:00"); d.setDate(d.getDate() + 1); return localDateStr(d.getTime()); }
+  if (state.gran === "week")  { const d = new Date(key + "T00:00:00"); d.setDate(d.getDate() + 7); return localDateStr(d.getTime()); }
+  if (state.gran === "month") { let [y, m] = key.split("-").map(Number); m++; if (m > 12) { m = 1; y++; } return `${y}-${String(m).padStart(2,"0")}`; }
+  return String(+key + 1);
+}
+function prevBucketKey(key) {
+  if (state.gran === "day")   { const d = new Date(key + "T00:00:00"); d.setDate(d.getDate() - 1); return localDateStr(d.getTime()); }
+  if (state.gran === "week")  { const d = new Date(key + "T00:00:00"); d.setDate(d.getDate() - 7); return localDateStr(d.getTime()); }
+  if (state.gran === "month") { let [y, m] = key.split("-").map(Number); m--; if (m < 1) { m = 12; y--; } return `${y}-${String(m).padStart(2,"0")}`; }
+  return String(+key - 1);
+}
+
+// ---------- data ----------
+async function load() {
+  const res = await fetch("data/usage.json", { cache: "no-store" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  state.records = data.records;
+
+  // per-model aggregates (all data)
+  state.models.clear();
+  for (const [ts, model, p, c] of state.records) {
+    const k = model || "(unknown)";
+    let e = state.models.get(k);
+    if (!e) { e = { n: 0, in: 0, out: 0 }; state.models.set(k, e); }
+    e.n++; e.in += p; e.out += c;
+  }
+
+  // model dropdown (by total tokens desc)
+  const sel = $("modelSel");
+  const ranked = [...state.models.entries()].sort((a, b) => (b[1].in + b[1].out) - (a[1].in + a[1].out));
+  sel.innerHTML = `<option value="__all__">All models (${ranked.length})</option>` +
+    ranked.map(([m, e]) => `<option value="${m.replace(/"/g,"&quot;")}">${m} — ${fmtTok(e.in + e.out)}</option>`).join("");
+  sel.value = state.model;
+
+  const tsMin = Math.min(...state.records.map(r => r[0]));
+  const tsMax = Math.max(...state.records.map(r => r[0]));
+  $("dataMeta").textContent = `${localDateStr(tsMin)} → ${localDateStr(tsMax)} · ${state.records.length.toLocaleString()} requests · parsed ${new Date(data.generatedAt).toLocaleString()}`;
+  $("foot").innerHTML = `Source: <code>${data.sourceDir}</code> (LM Studio server logs, llama.cpp print_timing lines) · generated ${new Date(data.generatedAt).toLocaleString()}<br>
+    Model attribution is best-effort from adjacent log context (~98% accurate when a single model runs at a time). Cached-token counts are not recorded by LM Studio logs — cached cost shows $0. Re-parse with <code>node parse.mjs</code>, then hit Refresh.`;
+
+  render();
+}
+
+// ---------- rendering ----------
+function filtered() {
+  return state.model === "__all__" ? state.records : state.records.filter(r => (r[1] || "(unknown)") === state.model);
+}
+
+function buildBuckets(recs) {
+  const map = new Map();
+  for (const [ts, , p, c] of recs) {
+    const k = bucketKey(ts);
+    let b = map.get(k);
+    if (!b) { b = { key: k, in: 0, out: 0, n: 0 }; map.set(k, b); }
+    b.in += p; b.out += c; b.n++;
+  }
+  // fill the full global range so gaps show as zero
+  let tsMin = Infinity, tsMax = -Infinity;
+  for (const [ts] of state.records) { if (ts < tsMin) tsMin = ts; if (ts > tsMax) tsMax = ts; }
+  const firstKey = bucketKey(tsMin), lastKey = bucketKey(tsMax);
+  const out = [];
+  let k = firstKey, guard = 0;
+  while (k <= lastKey && guard++ < 5000) {
+    out.push(map.get(k) || { key: k, in: 0, out: 0, n: 0 });
+    k = nextBucketKey(k);
+  }
+  return out;
+}
+
+function movingAvg(arr, w) {
+  const out = new Array(arr.length).fill(null);
+  let sum = 0;
+  for (let i = 0; i < arr.length; i++) {
+    sum += arr[i];
+    if (i >= w) sum -= arr[i - w];
+    if (i >= w - 1) out[i] = Math.round(sum / w);
+  }
+  return out;
+}
+
+function trendDelta(cur, prev, curKey, prevKey) {
+  const el = $("kTrend"), sub = $("kTrendSub");
+  if (!cur || !prev) { el.textContent = "—"; el.className = "value"; sub.textContent = "not enough data yet"; return; }
+  const ct = cur.in + cur.out, pt = prev.in + prev.out;
+  if (pt === 0) { el.textContent = "—"; el.className = "value"; sub.textContent = `no data in ${bucketLabel(prevKey)}`; return; }
+  const d = (ct - pt) / pt * 100;
+  el.textContent = `${d >= 0 ? "▲" : "▼"} ${Math.abs(d).toFixed(0)}%`;
+  el.className = "value " + (d >= 0 ? "up" : "down");
+  sub.textContent = `${bucketLabel(curKey)} vs ${bucketLabel(prevKey)}`;
+}
+
+function render() {
+  const recs = filtered();
+  const buckets = buildBuckets(recs);
+  const totIn = buckets.reduce((s, b) => s + b.in, 0);
+  const totOut = buckets.reduce((s, b) => s + b.out, 0);
+  const totN = buckets.reduce((s, b) => s + b.n, 0);
+
+  // KPIs
+  $("kReq").textContent = totN.toLocaleString();
+  $("kIn").textContent = fmtTok(totIn);
+  $("kOut").textContent = fmtTok(totOut);
+  $("kTot").textContent = fmtTok(totIn + totOut);
+  const cost = (totIn * state.prices.in + totOut * state.prices.out) / 1e6;
+  $("kCost").textContent = fmtMoney(cost);
+  $("kCostSub").textContent = `at $${state.prices.in}/M in · $${state.prices.out}/M out`;
+
+  // trend: last two complete buckets (exclude the period still in progress)
+  const nowKey = bucketKey(Date.now());
+  const curKey = prevBucketKey(nowKey), prevKey = prevBucketKey(curKey);
+  const bmap = new Map(buckets.map(b => [b.key, b]));
+  trendDelta(bmap.get(curKey), bmap.get(prevKey), curKey, prevKey);
+
+  // chart
+  const labels = buckets.map(b => bucketLabel(b.key));
+  const totals = buckets.map(b => b.in + b.out);
+  const showMA = (state.gran === "day" || state.gran === "week") && buckets.length > 7;
+  const ma = movingAvg(totals, 7);
+
+  if (!chart) {
+    chart = new Chart($("trendChart"), {
+      type: "bar",
+      data: { labels, datasets: [
+        { label: "Input (sent)", data: buckets.map(b => b.in), backgroundColor: "#4f8ef7", stack: "s" },
+        { label: "Output (received)", data: buckets.map(b => b.out), backgroundColor: "#34d399", stack: "s" },
+        { label: `${showMA ? 7 : ""}-period moving avg`, type: "line", data: ma, borderColor: "#fbbf24", borderWidth: 2, pointRadius: 0, tension: .35, fill: false },
+      ]},
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        interaction: { mode: "index", intersect: false },
+        scales: {
+          x: { stacked: true, grid: { display: false }, ticks: { maxTicksLimit: 12, color: "#8b949e" } },
+          y: { stacked: true, beginAtZero: true, grid: { color: "#21262d" }, ticks: { color: "#8b949e", callback: v => fmtTok(v) } },
+        },
+        plugins: {
+          legend: { labels: { color: "#e6edf3", boxWidth: 12 } },
+          tooltip: { callbacks: { afterBody: items => { const b = buckets[items[0].dataIndex]; return `requests: ${b.n}`; } } },
+        },
+      },
+    });
+  } else {
+    chart.data.labels = labels;
+    chart.data.datasets[0].data = buckets.map(b => b.in);
+    chart.data.datasets[1].data = buckets.map(b => b.out);
+    chart.data.datasets[2].data = ma;
+    chart.data.datasets[2].label = showMA ? "7-period moving avg" : "";
+    chart.update();
+  }
+  $("chartTitle").textContent = `${state.model === "__all__" ? "all models" : state.model} · per ${state.gran}`;
+
+  renderTopModels();
+  renderCosts(totIn, totOut);
+}
+
+function renderTopModels() {
+  const ranked = [...state.models.entries()].sort((a, b) => (b[1].in + b[1].out) - (a[1].in + a[1].out));
+  const grand = ranked.reduce((s, [, e]) => s + e.in + e.out, 0);
+  $("topTable").querySelector("tbody").innerHTML = ranked.map(([m, e], i) => {
+    const tot = e.in + e.out;
+    const c = (e.in * state.prices.in + e.out * state.prices.out) / 1e6;
+    return `<tr class="model-row ${state.model === m ? "selected" : ""}" data-model="${m.replace(/"/g,"&quot;")}">
+      <td>${i + 1}</td>
+      <td class="model-name" title="${m}">${m}</td>
+      <td class="num">${e.n.toLocaleString()}</td>
+      <td class="num">${fmtTok(tot)}</td>
+      <td><div class="share-bar" style="width:${Math.max(2, tot / grand * 100)}%"></div></td>
+      <td class="num">${fmtMoney(c)}</td>
+    </tr>`;
+  }).join("");
+}
+
+function renderCosts(totIn, totOut) {
+  const rows = [
+    ["Input (sent)", totIn, state.prices.in],
+    ["Output (received)", totOut, state.prices.out],
+    ["Cached", 0, state.prices.cached],
+  ];
+  let total = 0;
+  $("costTable").querySelector("tbody").innerHTML = rows.map(([name, tok, rate]) => {
+    const c = tok * rate / 1e6; total += c;
+    return `<tr><td>${name}${name === "Cached" ? ' <span style="color:var(--dim)">(not tracked in logs)</span>' : ""}</td>
+      <td class="num">${fmtTok(tok)}</td><td class="num">$${rate.toFixed(2)}/M</td><td class="num">${fmtMoney(c)}</td></tr>`;
+  }).join("") + `<tr style="font-weight:600"><td>Total (current filter)</td><td class="num"></td><td></td><td class="num">${fmtMoney(total)}</td></tr>`;
+  $("costNote").textContent = "Prices are per 1M tokens and apply to the current model filter. LM Studio logs don't record cache hits, so cached cost is $0 — wire in real usage data later if you add a proxy.";
+}
+
+// ---------- events ----------
+$("modelSel").addEventListener("change", e => { state.model = e.target.value; render(); });
+$("granSeg").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  state.gran = b.dataset.g;
+  document.querySelectorAll("#granSeg button").forEach(x => x.classList.toggle("active", x === b));
+  render();
+});
+for (const [id, key] of [["pIn","in"],["pOut","out"],["pCached","cached"]]) {
+  $(id).addEventListener("change", e => {
+    const v = parseFloat(e.target.value);
+    if (!isNaN(v) && v >= 0) state.prices[key] = v;
+    render();
+  });
+}
+$("refreshBtn").addEventListener("click", () => load().catch(err => alert("Refresh failed: " + err.message)));
+
+// restore prices
+try { Object.assign(state.prices, JSON.parse(localStorage.getItem("lms-prices") || "{}")); } catch {}
+for (const [id, key] of [["pIn","in"],["pOut","out"],["pCached","cached"]]) $(id).value = state.prices[key];
+document.addEventListener("change", e => { if (e.target.id.startsWith("p")) localStorage.setItem("lms-prices", JSON.stringify(state.prices)); });
+
+load().catch(err => { $("dataMeta").textContent = "Failed to load data/usage.json — run: node parse.mjs"; console.error(err); });
+</script>
+</body>
+</html>

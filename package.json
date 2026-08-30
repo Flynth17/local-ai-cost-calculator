@@ -1,0 +1,31 @@
+{
+  "name": "local-ai-cost-calculator",
+  "version": "1.0.0",
+  "description": "Parse LM Studio server logs into a per-request token usage dashboard with cost at your token prices.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "lmstudio-dash": "server.mjs"
+  },
+  "scripts": {
+    "parse": "node parse.mjs",
+    "serve": "node server.mjs",
+    "start": "node parse.mjs && node server.mjs"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "files": [
+    "parse.mjs",
+    "server.mjs",
+    "index.html",
+    "vendor/",
+    "run.bat",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Flynth17/local-ai-cost-calculator.git"
+  }
+}
