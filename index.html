@@ -3,64 +3,81 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LM Studio Token Usage</title>
+<title>Local AI Cost Calculator</title>
 <script src="vendor/chart.umd.min.js"></script>
 <style>
   :root {
     --bg: #0d1117; --panel: #161b22; --border: #2d333b; --text: #e6edf3;
     --dim: #8b949e; --blue: #4f8ef7; --green: #34d399; --amber: #fbbf24;
-    --red: #f85149; --purple: #a78bfa;
+    --red: #f85149;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 "Segoe UI", system-ui, sans-serif; padding: 20px; max-width: 1280px; margin-inline: auto; }
-  header { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 "Segoe UI", system-ui, sans-serif; padding: 20px; max-width: 1360px; margin-inline: auto; }
+  header { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
   h1 { font-size: 20px; margin: 0; }
   .meta { color: var(--dim); font-size: 12.5px; }
   button, select { background: #21262d; color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font: inherit; cursor: pointer; }
   button:hover, select:hover { border-color: #8b949e; }
   .controls { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
   .controls label { color: var(--dim); font-size: 13px; display: flex; gap: 8px; align-items: center; }
-  select { min-width: 240px; max-width: 340px; }
+  select { min-width: 200px; max-width: 340px; }
   .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
   .seg button { border: none; border-radius: 0; background: transparent; padding: 6px 14px; color: var(--dim); }
   .seg button.active { background: #30363d; color: var(--text); }
-  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 16px; }
   .kpi { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
   .kpi .label { color: var(--dim); font-size: 12px; margin-bottom: 4px; }
   .kpi .value { font-size: 20px; font-weight: 600; }
-  .kpi .sub { font-size: 11.5px; color: var(--dim); margin-top: 2px; min-height: 14px; }
-  .up { color: var(--green); } .down { color: var(--red); }
+  .kpi .sub { font-size: 11.5px; color: var(--dim); margin-top: 3px; min-height: 14px; line-height: 1.35; }
   .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
-  .panel h2 { font-size: 14px; margin: 0 0 12px; color: var(--dim); text-transform: uppercase; letter-spacing: .5px; }
+  .panel h2 { font-size: 14px; margin: 0 0 4px; color: var(--dim); text-transform: uppercase; letter-spacing: .5px; }
+  .panel .hint { color: var(--dim); font-size: 12px; margin: 0 0 12px; line-height: 1.5; }
   .chart-wrap { position: relative; height: 340px; }
-  .two-col { display: grid; grid-template-columns: 1.6fr 1fr; gap: 16px; }
-  @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+  .two-col { display: grid; grid-template-columns: 1.7fr 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 980px) { .two-col { grid-template-columns: 1fr; } }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; color: var(--dim); font-weight: 500; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  th { text-align: left; color: var(--dim); font-weight: 500; padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
   td { padding: 7px 8px; border-bottom: 1px solid #21262d; white-space: nowrap; }
   tr.model-row { cursor: pointer; }
   tr.model-row:hover { background: #1c2129; }
-  tr.model-row.selected { background: #1f2a3a; }
-  .model-name { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
-  .share-bar { height: 6px; border-radius: 3px; background: var(--blue); min-width: 4px; }
+  .model-name { max-width: 250px; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: bottom; }
+  .share-bar { height: 6px; border-radius: 3px; background: var(--blue); min-width: 4px; margin-top: 3px; }
   .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .chev { color: var(--dim); display: inline-block; transition: transform .15s; width: 14px; }
+  tr.model-row.open .chev { transform: rotate(90deg); }
+  tr.detail-row > td { background: #12161d; padding: 10px 14px; white-space: normal; }
+  .detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px 24px; }
+  .detail-grid .dlabel { color: var(--dim); font-size: 11.5px; text-transform: uppercase; letter-spacing: .4px; }
+  .detail-grid .dvalue { font-variant-numeric: tabular-nums; margin-top: 2px; }
   .price-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
   .price-row label { color: var(--dim); font-size: 13px; display: flex; align-items: center; gap: 6px; }
   .price-row input { width: 80px; background: #21262d; border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 5px 8px; font: inherit; text-align: right; }
-  .note { color: var(--dim); font-size: 12px; margin-top: 10px; }
+  .note { color: var(--dim); font-size: 12px; margin-top: 10px; line-height: 1.55; }
   footer { color: var(--dim); font-size: 12px; margin-top: 4px; line-height: 1.7; }
-  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+  code { background: #21262d; border-radius: 4px; padding: 1px 5px; font-size: 12px; }
+  .ref-table td, .ref-table th { white-space: normal; }
+  .warn-banner { display: none; background: #3a1d20; border: 1px solid var(--red); color: #ffb4ab; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 13px; }
+  .dim { color: var(--dim); }
+  details.panel > summary { cursor: pointer; list-style: none; }
+  details.panel > summary::-webkit-details-marker { display: none; }
+  details.panel > summary::before { content: "▸ "; color: var(--dim); }
+  details.panel[open] > summary::before { content: "▾ "; }
 </style>
 </head>
 <body>
 
 <header>
-  <h1>LM Studio Token Usage</h1>
+  <h1>Local AI Cost Calculator</h1>
   <div class="meta" id="dataMeta">loading…</div>
-  <button id="refreshBtn" title="Re-read data/usage.json (run: node parse.mjs)">↻ Refresh</button>
 </header>
 
+<div class="warn-banner" id="errorBanner"></div>
+
 <section class="controls">
+  <label>Session
+    <select id="sessionSel"></select>
+  </label>
+  <span id="piSlot"></span>
   <label>Model
     <select id="modelSel"></select>
   </label>
@@ -73,49 +90,87 @@
 </section>
 
 <section class="kpis">
-  <div class="kpi"><div class="label">Requests</div><div class="value" id="kReq">–</div><div class="sub" id="kReqSub"></div></div>
-  <div class="kpi"><div class="label">Input tokens (sent)</div><div class="value" id="kIn">–</div><div class="sub" style="color:var(--blue)">prompt / context</div></div>
-  <div class="kpi"><div class="label">Output tokens (received)</div><div class="value" id="kOut">–</div><div class="sub" style="color:var(--green)">generated</div></div>
-  <div class="kpi"><div class="label">Total tokens</div><div class="value" id="kTot">–</div><div class="sub"></div></div>
-  <div class="kpi"><div class="label">Est. cost</div><div class="value" id="kCost">–</div><div class="sub" id="kCostSub"></div></div>
-  <div class="kpi"><div class="label">Trend (last full period vs prev)</div><div class="value" id="kTrend">–</div><div class="sub" id="kTrendSub"></div></div>
+  <div class="kpi"><div class="label">Total requests</div><div class="value" id="kReq">–</div><div class="sub" id="kReqSub"></div></div>
+  <div class="kpi"><div class="label">Measured tokens</div><div class="value" id="kMeas">–</div><div class="sub">evaluated input + output (measured only)</div></div>
+  <div class="kpi"><div class="label">GPU-evaluated input</div><div class="value" id="kEval">–</div><div class="sub">tokens actually computed on GPU</div></div>
+  <div class="kpi"><div class="label">Output tokens</div><div class="value" id="kOut">–</div><div class="sub">generated</div></div>
+  <div class="kpi"><div class="label">Estimated workload cost &gt;=</div><div class="value" id="kCostLB">–</div><div class="sub">useful whole-workload lower bound — all measured tokens at full rates, no cache credit for unknown historical data</div></div>
+  <div class="kpi"><div class="label">Exact cache-aware cost</div><div class="value" id="kCostEx">–</div><div class="sub" id="kCostExSub"></div></div>
+  <div class="kpi"><div class="label">Exact logical-input coverage</div><div class="value" id="kCov">–</div><div class="sub" id="kCovSub"></div></div>
 </section>
 
 <section class="panel">
-  <h2>Tokens over time — <span id="chartTitle"></span></h2>
-  <div class="chart-wrap"><canvas id="trendChart"></canvas></div>
+  <h2>Tokens over time — <span id="tokensTitle"></span></h2>
+  <p class="hint">GPU-evaluated input + output tokens per period. Granularity and filters apply.</p>
+  <div class="chart-wrap"><canvas id="tokensChart"></canvas></div>
+</section>
+
+<section class="panel">
+  <h2>Cost over time — <span id="costTitle"></span></h2>
+  <p class="hint">Bar: estimated cost per period = evaluatedIn × inputRate/1M + outTokens × outputRate/1M. Line: cumulative. No cache-read estimate for unknown historical data. The final cumulative point reconciles to the filtered “Estimated workload cost &gt;=” KPI.</p>
+  <div class="chart-wrap"><canvas id="costChart"></canvas></div>
 </section>
 
 <div class="two-col">
   <section class="panel">
-    <h2>Most used models (all data)</h2>
-    <table id="topTable">
-      <thead><tr><th>#</th><th>Model</th><th class="num">Requests</th><th class="num">Tokens</th><th style="width:18%">Share</th><th class="num">Est. cost</th></tr></thead>
+    <h2>Most used models — <span id="modelsTitle"></span></h2>
+    <p class="hint">Input = GPU-evaluated input · Output = generated tokens · Tokens = Input + Output · Share = model tokens / filtered total tokens · Est. cost &gt;= at current rates. Click a row for exact (covered-subset) details.</p>
+    <table id="modelTable">
+      <thead><tr>
+        <th>#</th><th>Model</th>
+        <th class="num">Requests</th><th class="num">Input</th><th class="num">Output</th><th class="num">Tokens</th>
+        <th style="width:16%">Share</th><th class="num">Est. cost &gt;=</th><th></th>
+      </tr></thead>
       <tbody></tbody>
     </table>
   </section>
 
   <section class="panel">
-    <h2>Token prices (per 1M tokens)</h2>
+    <h2>Accounting — pricing (per 1M tokens)</h2>
     <div class="price-row">
       <label>Input $<input id="pIn" type="number" step="0.01" min="0"></label>
-      <label>Output $<input id="pOut" type="number" step="0.01" min="0"></label>
       <label>Cached $<input id="pCached" type="number" step="0.01" min="0"></label>
+      <label>Output $<input id="pOut" type="number" step="0.01" min="0"></label>
     </div>
-    <table id="costTable">
-      <thead><tr><th></th><th class="num">Tokens</th><th class="num">Rate</th><th class="num">Cost</th></tr></thead>
+    <table id="acctTable">
+      <thead><tr><th>Covered subset (exact logical context)</th><th class="num">Tokens</th><th class="num">Rate</th><th class="num">Cost</th></tr></thead>
       <tbody></tbody>
     </table>
-    <div class="note" id="costNote"></div>
+    <div class="note" id="acctNote"></div>
   </section>
 </div>
+
+<section class="panel">
+  <h2>Harness logical-context totals — reference only</h2>
+  <p class="hint">These are reference totals and are NOT additive to LM Studio totals. Values taken verbatim from usage-v3.json; not joined into request records.</p>
+  <div id="harnessRefs"></div>
+</section>
+
+<details class="panel" id="diagPanel">
+  <summary>Diagnostics &amp; attribution (collapsed)</summary>
+  <div id="diagnosticsBody" style="margin-top:12px"></div>
+</details>
 
 <footer id="foot"></footer>
 
 <script>
 "use strict";
-const state = { records: [], models: new Map(), gran: "day", model: "__all__", prices: { in: 4.40, out: 22.00, cached: 0.44 } };
-let chart = null;
+/* ============================================================
+ * v3 preview dashboard — clean rebuild on data/usage-v3.json.
+ * All headline numbers are computed from the records at runtime;
+ * nothing is hardcoded. Rates default to data.ratesPerM.
+ * ========================================================== */
+const state = {
+  data: null,
+  gran: "day",
+  session: "__all__",
+  piSession: "__all__",
+  model: "__all__",
+  prices: { input: 4.40, cached: 0.44, output: 22.00 },
+  expanded: new Set(),
+};
+let tokensChart = null;
+let costChart = null;
 
 // ---------- helpers ----------
 const $ = id => document.getElementById(id);
@@ -126,10 +181,11 @@ function fmtTok(n) {
   return String(n);
 }
 const fmtMoney = n => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
 function localDateStr(ts) { const d = new Date(ts); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
 function weekStartTs(ts) { const d = new Date(ts); const off = (d.getDay() + 6) % 7; d.setDate(d.getDate() - off); d.setHours(0,0,0,0); return d.getTime(); }
 
-// ---------- bucketing ----------
+// ---------- bucketing (day/week/month/year, local time) ----------
 function bucketKey(ts) {
   const d = new Date(ts);
   switch (state.gran) {
@@ -139,6 +195,12 @@ function bucketKey(ts) {
     case "year":  return String(d.getFullYear());
   }
 }
+function nextBucketKey(key) {
+  if (state.gran === "day")   { const d = new Date(key + "T00:00:00"); d.setDate(d.getDate() + 1); return localDateStr(d.getTime()); }
+  if (state.gran === "week")  { const d = new Date(key + "T00:00:00"); d.setDate(d.getDate() + 7); return localDateStr(d.getTime()); }
+  if (state.gran === "month") { let [y, m] = key.split("-").map(Number); m++; if (m > 12) { m = 1; y++; } return `${y}-${String(m).padStart(2,"0")}`; }
+  return String(+key + 1);
+}
 function bucketLabel(key) {
   const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   if (state.gran === "day")   return key.slice(5).replace("-", "/");
@@ -146,134 +208,104 @@ function bucketLabel(key) {
   if (state.gran === "month") { const [y, m] = key.split("-"); return `${MONTHS[+m - 1]} '${y.slice(2)}`; }
   return key;
 }
-function nextBucketKey(key) { // for filling gaps + trend lookups
-  if (state.gran === "day")   { const d = new Date(key + "T00:00:00"); d.setDate(d.getDate() + 1); return localDateStr(d.getTime()); }
-  if (state.gran === "week")  { const d = new Date(key + "T00:00:00"); d.setDate(d.getDate() + 7); return localDateStr(d.getTime()); }
-  if (state.gran === "month") { let [y, m] = key.split("-").map(Number); m++; if (m > 12) { m = 1; y++; } return `${y}-${String(m).padStart(2,"0")}`; }
-  return String(+key + 1);
-}
-function prevBucketKey(key) {
-  if (state.gran === "day")   { const d = new Date(key + "T00:00:00"); d.setDate(d.getDate() - 1); return localDateStr(d.getTime()); }
-  if (state.gran === "week")  { const d = new Date(key + "T00:00:00"); d.setDate(d.getDate() - 7); return localDateStr(d.getTime()); }
-  if (state.gran === "month") { let [y, m] = key.split("-").map(Number); m--; if (m < 1) { m = 12; y--; } return `${y}-${String(m).padStart(2,"0")}`; }
-  return String(+key - 1);
+
+// ---------- filtering & aggregation ----------
+function filteredRecords() {
+  const R = state.data.records;
+  if (state.session === "__all__" && state.piSession === "__all__" && state.model === "__all__") return R;
+  return R.filter(r =>
+    (state.session   === "__all__" || r.sessionClass === state.session) &&
+    (state.piSession === "__all__" || (r.harness != null && String(r.harness) === state.piSession)) &&
+    (state.model     === "__all__" || (r.model == null ? "(unknown)" : r.model) === state.model)
+  );
 }
 
-// ---------- data ----------
-async function load() {
-  const res = await fetch("data/usage.json", { cache: "no-store" });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = await res.json();
-  state.records = data.records;
-
-  // per-model aggregates (all data)
-  state.models.clear();
-  for (const [ts, model, p, c] of state.records) {
-    const k = model || "(unknown)";
-    let e = state.models.get(k);
-    if (!e) { e = { n: 0, in: 0, out: 0 }; state.models.set(k, e); }
-    e.n++; e.in += p; e.out += c;
+/* Aggregate a record set. Token sums treat missing values as absent (0).
+ * Exact-logical fields are only summed where decomposition is valid:
+ * logicalInputExact === true AND logicalIn != null. Unknowns stay unknown —
+ * never coerced to zero. */
+function aggregate(recs) {
+  const a = { n: 0, evalIn: 0, outTok: 0, exactN: 0, declaredN: 0, exactLogicalIn: 0, derivedCached: 0 };
+  for (const r of recs) {
+    a.n++;
+    if (r.evaluatedIn != null) a.evalIn += r.evaluatedIn;
+    if (r.outTokens   != null) a.outTok += r.outTokens;
+    if (typeof r.logicalInputExact === "boolean") a.declaredN++;
+    if (r.logicalInputExact === true && r.logicalIn != null) {
+      a.exactN++;
+      a.exactLogicalIn += r.logicalIn;
+    }
+    if (r.cachedIn != null) a.derivedCached += r.cachedIn; // derived cached input, where present
   }
-
-  // model dropdown (by total tokens desc)
-  const sel = $("modelSel");
-  const ranked = [...state.models.entries()].sort((a, b) => (b[1].in + b[1].out) - (a[1].in + a[1].out));
-  sel.innerHTML = `<option value="__all__">All models (${ranked.length})</option>` +
-    ranked.map(([m, e]) => `<option value="${m.replace(/"/g,"&quot;")}">${m} — ${fmtTok(e.in + e.out)}</option>`).join("");
-  sel.value = state.model;
-
-  const tsMin = Math.min(...state.records.map(r => r[0]));
-  const tsMax = Math.max(...state.records.map(r => r[0]));
-  $("dataMeta").textContent = `${localDateStr(tsMin)} → ${localDateStr(tsMax)} · ${state.records.length.toLocaleString()} requests · parsed ${new Date(data.generatedAt).toLocaleString()}`;
-  $("foot").innerHTML = `Source: <code>${data.sourceDir}</code> (LM Studio server logs, llama.cpp print_timing lines) · generated ${new Date(data.generatedAt).toLocaleString()}<br>
-    Model attribution is best-effort from adjacent log context (~98% accurate when a single model runs at a time). Cached-token counts are not recorded by LM Studio logs — cached cost shows $0. Re-parse with <code>node parse.mjs</code>, then hit Refresh.`;
-
-  render();
+  return a;
 }
 
-// ---------- rendering ----------
-function filtered() {
-  return state.model === "__all__" ? state.records : state.records.filter(r => (r[1] || "(unknown)") === state.model);
+/* Exact cache-aware cost over the covered subset, at current rates:
+ *   evaluated portion (logicalIn - cachedIn) × inputRate
+ * + derived cached    (cachedIn)            × cachedRate
+ * + exact-record output (outTokens)         × outputRate
+ * Only where decomposition is valid. */
+function exactCostOf(recs) {
+  const p = state.prices;
+  let cost = 0, coveredOut = 0, evaluatedPortion = 0, derivedCached = 0, n = 0;
+  for (const r of recs) {
+    if (!(r.logicalInputExact === true && r.logicalIn != null)) continue;
+    const c = r.cachedIn != null ? r.cachedIn : 0;
+    evaluatedPortion += r.logicalIn - c;
+    derivedCached += c;
+    coveredOut += (r.outTokens != null ? r.outTokens : 0);
+    cost += ((r.logicalIn - c) * p.input + c * p.cached + (r.outTokens != null ? r.outTokens : 0) * p.output) / 1e6;
+    n++;
+  }
+  return { cost, coveredOut, evaluatedPortion, derivedCached, n };
 }
 
+/* Per-model coverage display. Never coerce unknown to zero:
+ *   - some exact records            -> "X.X%"
+ *   - zero exact, all declared      -> "0.0% (verified)"
+ *   - otherwise (flags missing)     -> "unknown" */
+function coverageDisplay(m) {
+  if (m.n === 0) return "unknown";
+  if (m.exactN > 0) return (100 * m.exactN / m.n).toFixed(1) + "%";
+  if (m.declaredN === m.n) return "0.0% (verified)";
+  return "unknown";
+}
+
+function modelKey(r) { return r.model == null ? "(unknown)" : r.model; }
+
+// ---------- charts ----------
 function buildBuckets(recs) {
   const map = new Map();
-  for (const [ts, , p, c] of recs) {
-    const k = bucketKey(ts);
+  for (const r of recs) {
+    const k = bucketKey(r.ts);
     let b = map.get(k);
-    if (!b) { b = { key: k, in: 0, out: 0, n: 0 }; map.set(k, b); }
-    b.in += p; b.out += c; b.n++;
+    if (!b) { b = { key: k, evalIn: 0, outTok: 0, n: 0 }; map.set(k, b); }
+    if (r.evaluatedIn != null) b.evalIn += r.evaluatedIn;
+    if (r.outTokens   != null) b.outTok += r.outTokens;
+    b.n++;
   }
-  // fill the full global range so gaps show as zero
+  // fill the full global range so gaps show as zero periods
   let tsMin = Infinity, tsMax = -Infinity;
-  for (const [ts] of state.records) { if (ts < tsMin) tsMin = ts; if (ts > tsMax) tsMax = ts; }
-  const firstKey = bucketKey(tsMin), lastKey = bucketKey(tsMax);
+  for (const r of state.data.records) { if (r.ts < tsMin) tsMin = r.ts; if (r.ts > tsMax) tsMax = r.ts; }
   const out = [];
-  let k = firstKey, guard = 0;
-  while (k <= lastKey && guard++ < 5000) {
-    out.push(map.get(k) || { key: k, in: 0, out: 0, n: 0 });
+  let k = bucketKey(tsMin), guard = 0;
+  while (k <= bucketKey(tsMax) && guard++ < 5000) {
+    out.push(map.get(k) || { key: k, evalIn: 0, outTok: 0, n: 0 });
     k = nextBucketKey(k);
   }
   return out;
 }
 
-function movingAvg(arr, w) {
-  const out = new Array(arr.length).fill(null);
-  let sum = 0;
-  for (let i = 0; i < arr.length; i++) {
-    sum += arr[i];
-    if (i >= w) sum -= arr[i - w];
-    if (i >= w - 1) out[i] = Math.round(sum / w);
-  }
-  return out;
-}
-
-function trendDelta(cur, prev, curKey, prevKey) {
-  const el = $("kTrend"), sub = $("kTrendSub");
-  if (!cur || !prev) { el.textContent = "—"; el.className = "value"; sub.textContent = "not enough data yet"; return; }
-  const ct = cur.in + cur.out, pt = prev.in + prev.out;
-  if (pt === 0) { el.textContent = "—"; el.className = "value"; sub.textContent = `no data in ${bucketLabel(prevKey)}`; return; }
-  const d = (ct - pt) / pt * 100;
-  el.textContent = `${d >= 0 ? "▲" : "▼"} ${Math.abs(d).toFixed(0)}%`;
-  el.className = "value " + (d >= 0 ? "up" : "down");
-  sub.textContent = `${bucketLabel(curKey)} vs ${bucketLabel(prevKey)}`;
-}
-
-function render() {
-  const recs = filtered();
-  const buckets = buildBuckets(recs);
-  const totIn = buckets.reduce((s, b) => s + b.in, 0);
-  const totOut = buckets.reduce((s, b) => s + b.out, 0);
-  const totN = buckets.reduce((s, b) => s + b.n, 0);
-
-  // KPIs
-  $("kReq").textContent = totN.toLocaleString();
-  $("kIn").textContent = fmtTok(totIn);
-  $("kOut").textContent = fmtTok(totOut);
-  $("kTot").textContent = fmtTok(totIn + totOut);
-  const cost = (totIn * state.prices.in + totOut * state.prices.out) / 1e6;
-  $("kCost").textContent = fmtMoney(cost);
-  $("kCostSub").textContent = `at $${state.prices.in}/M in · $${state.prices.out}/M out`;
-
-  // trend: last two complete buckets (exclude the period still in progress)
-  const nowKey = bucketKey(Date.now());
-  const curKey = prevBucketKey(nowKey), prevKey = prevBucketKey(curKey);
-  const bmap = new Map(buckets.map(b => [b.key, b]));
-  trendDelta(bmap.get(curKey), bmap.get(prevKey), curKey, prevKey);
-
-  // chart
+function renderTokensChart(buckets) {
   const labels = buckets.map(b => bucketLabel(b.key));
-  const totals = buckets.map(b => b.in + b.out);
-  const showMA = (state.gran === "day" || state.gran === "week") && buckets.length > 7;
-  const ma = movingAvg(totals, 7);
-
-  if (!chart) {
-    chart = new Chart($("trendChart"), {
+  const tData0 = buckets.map(b => b.evalIn);
+  const tData1 = buckets.map(b => b.outTok);
+  if (!tokensChart) {
+    tokensChart = new Chart($("tokensChart"), {
       type: "bar",
       data: { labels, datasets: [
-        { label: "Input (sent)", data: buckets.map(b => b.in), backgroundColor: "#4f8ef7", stack: "s" },
-        { label: "Output (received)", data: buckets.map(b => b.out), backgroundColor: "#34d399", stack: "s" },
-        { label: `${showMA ? 7 : ""}-period moving avg`, type: "line", data: ma, borderColor: "#fbbf24", borderWidth: 2, pointRadius: 0, tension: .35, fill: false },
+        { label: "GPU-evaluated input", data: [], backgroundColor: "#4f8ef7", stack: "s" },
+        { label: "Output",              data: [], backgroundColor: "#34d399", stack: "s" },
       ]},
       options: {
         responsive: true, maintainAspectRatio: false, animation: false,
@@ -284,79 +316,317 @@ function render() {
         },
         plugins: {
           legend: { labels: { color: "#e6edf3", boxWidth: 12 } },
-          tooltip: { callbacks: { afterBody: items => { const b = buckets[items[0].dataIndex]; return `requests: ${b.n}`; } } },
+          tooltip: { callbacks: { afterBody: items => `requests: ${buckets[items[0].dataIndex].n.toLocaleString()}` } },
         },
       },
     });
-  } else {
-    chart.data.labels = labels;
-    chart.data.datasets[0].data = buckets.map(b => b.in);
-    chart.data.datasets[1].data = buckets.map(b => b.out);
-    chart.data.datasets[2].data = ma;
-    chart.data.datasets[2].label = showMA ? "7-period moving avg" : "";
-    chart.update();
   }
-  $("chartTitle").textContent = `${state.model === "__all__" ? "all models" : state.model} · per ${state.gran}`;
-
-  renderTopModels();
-  renderCosts(totIn, totOut);
+  tokensChart.data.labels = labels;
+  tokensChart.data.datasets[0].data = tData0;
+  tokensChart.data.datasets[1].data = tData1;
+  tokensChart.update();
 }
 
-function renderTopModels() {
-  const ranked = [...state.models.entries()].sort((a, b) => (b[1].in + b[1].out) - (a[1].in + a[1].out));
-  const grand = ranked.reduce((s, [, e]) => s + e.in + e.out, 0);
-  $("topTable").querySelector("tbody").innerHTML = ranked.map(([m, e], i) => {
-    const tot = e.in + e.out;
-    const c = (e.in * state.prices.in + e.out * state.prices.out) / 1e6;
-    return `<tr class="model-row ${state.model === m ? "selected" : ""}" data-model="${m.replace(/"/g,"&quot;")}">
+function renderCostChart(buckets) {
+  const p = state.prices;
+  // per-bucket estimated cost >= (no cache-read estimate for unknown historical data)
+  const perBucket = buckets.map(b => (b.evalIn * p.input + b.outTok * p.output) / 1e6);
+  let run = 0;
+  const cumulative = perBucket.map(c => (run += c));
+  const labels = buckets.map(b => bucketLabel(b.key));
+
+  const cLabels = labels;
+  if (!costChart) {
+    costChart = new Chart($("costChart"), {
+      data: { labels, datasets: [
+        { type: "bar", label: "Estimated cost >=", data: [], backgroundColor: "#fbbf24", yAxisID: "y" },
+        { type: "line", label: "Cumulative estimated cost", data: [], borderColor: "#f85149", borderWidth: 2, pointRadius: 0, tension: .3, fill: false, yAxisID: "y1" },
+      ]},
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        interaction: { mode: "index", intersect: false },
+        scales: {
+          x: { grid: { display: false }, ticks: { maxTicksLimit: 12, color: "#8b949e" } },
+          y:  { beginAtZero: true, position: "left",  grid: { color: "#21262d" }, ticks: { color: "#fbbf24", callback: v => "$" + v }, title: { display: true, text: "cost / period", color: "#8b949e" } },
+          y1: { beginAtZero: true, position: "right", grid: { drawOnChartArea: false }, ticks: { color: "#f85149", callback: v => "$" + v }, title: { display: true, text: "cumulative", color: "#8b949e" } },
+        },
+        plugins: { legend: { labels: { color: "#e6edf3", boxWidth: 12 } } },
+      },
+    });
+  }
+  costChart.data.labels = cLabels;
+  costChart.data.datasets[0].data = perBucket;
+  costChart.data.datasets[1].data = cumulative;
+  costChart.update();
+
+  // reconciliation guard: final cumulative point must equal the filtered workload lower bound
+  const headline = (buckets.reduce((s, b) => s + b.evalIn, 0) * p.input + buckets.reduce((s, b) => s + b.outTok, 0) * p.output) / 1e6;
+  if (Math.abs(cumulative[cumulative.length - 1] - headline) > 0.01) {
+    console.error("RECONCILIATION FAIL: cumulative final", cumulative[cumulative.length - 1], "vs headline", headline);
+    showBanner("Cost reconciliation failed — cumulative line does not match the Estimated workload cost >= KPI.");
+  }
+}
+
+// ---------- rendering ----------
+function filterSummary() {
+  const parts = [];
+  if (state.model !== "__all__") parts.push(state.model);
+  if (state.session !== "__all__") parts.push("session: " + state.session);
+  if (state.piSession !== "__all__") parts.push("Pi session: " + state.piSession);
+  return parts.length ? parts.join(" · ") : "all data";
+}
+
+function render() {
+  const recs = filteredRecords();
+  const a = aggregate(recs);
+  const p = state.prices;
+  const exact = exactCostOf(recs);
+
+  // KPIs (filtered set)
+  $("kReq").textContent = a.n.toLocaleString();
+  $("kReqSub").textContent = `${a.exactN} with exact logical input`;
+  $("kMeas").textContent = fmtTok(a.evalIn + a.outTok);
+  $("kEval").textContent = fmtTok(a.evalIn);
+  $("kOut").textContent = fmtTok(a.outTok);
+  const costLB = (a.evalIn * p.input + a.outTok * p.output) / 1e6;
+  $("kCostLB").textContent = fmtMoney(costLB);
+  $("kCostEx").textContent = exact.n > 0 ? fmtMoney(exact.cost) : "—";
+  $("kCostExSub").textContent = `covered subset only — ${exact.n.toLocaleString()} requests with valid decomposition`;
+  const covPct = a.n > 0 ? (100 * a.exactN / a.n).toFixed(2) + "%" : "—";
+  $("kCov").textContent = covPct;
+  $("kCovSub").textContent = `${a.exactN.toLocaleString()} of ${a.n.toLocaleString()} requests`;
+
+  // charts
+  const buckets = buildBuckets(recs);
+  renderTokensChart(buckets);
+  renderCostChart(buckets);
+  $("tokensTitle").textContent = `${filterSummary()} · per ${state.gran}`;
+  $("costTitle").textContent = `${filterSummary()} · per ${state.gran}`;
+
+  renderModelTable(recs, a);
+  renderAccounting(exact, a);
+}
+
+function renderModelTable(recs, totalAgg) {
+  const p = state.prices;
+  const byModel = new Map();
+  for (const r of recs) {
+    const k = modelKey(r);
+    let m = byModel.get(k);
+    if (!m) { m = { n: 0, evalIn: 0, outTok: 0, exactN: 0, declaredN: 0, exactLogicalIn: 0, derivedCached: 0 }; byModel.set(k, m); }
+    m.n++;
+    if (r.evaluatedIn != null) m.evalIn += r.evaluatedIn;
+    if (r.outTokens   != null) m.outTok += r.outTokens;
+    if (typeof r.logicalInputExact === "boolean") m.declaredN++;
+    if (r.logicalInputExact === true && r.logicalIn != null) {
+      m.exactN++;
+      m.exactLogicalIn += r.logicalIn;
+      if (r.cachedIn != null) m.derivedCached += r.cachedIn;
+    }
+  }
+  const ranked = [...byModel.entries()].sort((x, y) => (y[1].evalIn + y[1].outTok) - (x[1].evalIn + x[1].outTok));
+  const totalTokens = a_totalTokens(ranked);
+  $("modelsTitle").textContent = filterSummary();
+
+  const tbody = $("modelTable").querySelector("tbody");
+  tbody.innerHTML = ranked.map(([name, m], i) => {
+    const tokens = m.evalIn + m.outTok;
+    const share = totalTokens > 0 ? (100 * tokens / totalTokens) : NaN;
+    const cost = (m.evalIn * p.input + m.outTok * p.output) / 1e6;
+    const open = state.expanded.has(name);
+    // exact covered-subset cost for this model
+    let exCostHtml;
+    if (m.exactN > 0) {
+      let c = 0;
+      for (const r of recs) {
+        if (modelKey(r) !== name || !(r.logicalInputExact === true && r.logicalIn != null)) continue;
+        const cached = r.cachedIn != null ? r.cachedIn : 0;
+        c += ((r.logicalIn - cached) * p.input + cached * p.cached + (r.outTokens != null ? r.outTokens : 0) * p.output) / 1e6;
+      }
+      exCostHtml = fmtMoney(c);
+    } else if (m.declaredN === m.n && m.n > 0) {
+      exCostHtml = "$0.00 <span class='dim'>(no covered requests)</span>";
+    } else {
+      exCostHtml = "unknown";
+    }
+    const cov = coverageDisplay(m);
+    const exactInHtml = m.exactN > 0 ? fmtTok(m.exactLogicalIn) : (m.declaredN === m.n && m.n > 0 ? "0 <span class='dim'>(verified)</span>" : "unknown");
+    const cachedHtml = m.derivedCached > 0 ? fmtTok(m.derivedCached) : (m.exactN > 0 || (m.declaredN === m.n && m.n > 0) ? "0" : "unknown");
+
+    return `<tr class="model-row ${open ? "open" : ""}" data-model="${esc(name)}">
       <td>${i + 1}</td>
-      <td class="model-name" title="${m}">${m}</td>
-      <td class="num">${e.n.toLocaleString()}</td>
-      <td class="num">${fmtTok(tot)}</td>
-      <td><div class="share-bar" style="width:${Math.max(2, tot / grand * 100)}%"></div></td>
-      <td class="num">${fmtMoney(c)}</td>
-    </tr>`;
+      <td><span class="model-name" title="${esc(name)}">${esc(name)}</span></td>
+      <td class="num">${m.n.toLocaleString()}</td>
+      <td class="num">${fmtTok(m.evalIn)}</td>
+      <td class="num">${fmtTok(m.outTok)}</td>
+      <td class="num">${fmtTok(tokens)}</td>
+      <td><div class="share-bar" style="width:${Math.max(2, isNaN(share) ? 0 : share)}%"></div><span class="dim" style="font-size:11px">${isNaN(share) ? "—" : share.toFixed(1) + "%"}</span></td>
+      <td class="num">${fmtMoney(cost)}</td>
+      <td><span class="chev">▸</span></td>
+    </tr>
+    ${open ? `<tr class="detail-row"><td colspan="9"><div class="detail-grid">
+        <div><div class="dlabel">Exact cost (covered)</div><div class="dvalue">${exCostHtml}</div></div>
+        <div><div class="dlabel">Coverage</div><div class="dvalue">${cov}</div></div>
+        <div><div class="dlabel">Exact logical input</div><div class="dvalue">${exactInHtml}</div></div>
+        <div><div class="dlabel">Derived cached input</div><div class="dvalue">${cachedHtml}</div></div>
+      </div></td></tr>` : ""}`;
   }).join("");
+
+  tbody.querySelectorAll("tr.model-row").forEach(tr => {
+    tr.addEventListener("click", () => {
+      const name = tr.dataset.model;
+      if (state.expanded.has(name)) state.expanded.delete(name); else state.expanded.add(name);
+      render(); // re-render table with expanded state
+    });
+  });
 }
 
-function renderCosts(totIn, totOut) {
+function a_totalTokens(ranked) { return ranked.reduce((s, [, m]) => s + m.evalIn + m.outTok, 0); }
+
+function renderAccounting(exact, a) {
+  const p = state.prices;
   const rows = [
-    ["Input (sent)", totIn, state.prices.in],
-    ["Output (received)", totOut, state.prices.out],
-    ["Cached", 0, state.prices.cached],
+    ["Evaluated portion (logical − cached)", exact.evaluatedPortion, p.input],
+    ["Derived cached input",                exact.derivedCached,     p.cached],
+    ["Exact-record output",                 exact.coveredOut,        p.output],
   ];
   let total = 0;
-  $("costTable").querySelector("tbody").innerHTML = rows.map(([name, tok, rate]) => {
+  $("acctTable").querySelector("tbody").innerHTML = rows.map(([name, tok, rate]) => {
     const c = tok * rate / 1e6; total += c;
-    return `<tr><td>${name}${name === "Cached" ? ' <span style="color:var(--dim)">(not tracked in logs)</span>' : ""}</td>
-      <td class="num">${fmtTok(tok)}</td><td class="num">$${rate.toFixed(2)}/M</td><td class="num">${fmtMoney(c)}</td></tr>`;
-  }).join("") + `<tr style="font-weight:600"><td>Total (current filter)</td><td class="num"></td><td></td><td class="num">${fmtMoney(total)}</td></tr>`;
-  $("costNote").textContent = "Prices are per 1M tokens and apply to the current model filter. LM Studio logs don't record cache hits, so cached cost is $0 — wire in real usage data later if you add a proxy.";
+    return `<tr><td>${name}</td><td class="num">${fmtTok(tok)}</td><td class="num">$${rate.toFixed(2)}/M</td><td class="num">${fmtMoney(c)}</td></tr>`;
+  }).join("") + `<tr style="font-weight:600"><td>Exact cache-aware cost (covered subset)</td><td class="num"></td><td></td><td class="num">${exact.n > 0 ? fmtMoney(total) : "—"}</td></tr>`;
+  $("acctNote").innerHTML = `Formula, only where decomposition is valid (${a.exactN.toLocaleString()} requests with exact logical context):<br>
+    evaluated portion × inputRate + derived cached × cachedRate + exact-record output × outputRate.<br>
+    Requests without a verified cache split are excluded from this subset — they remain in the whole-workload lower bound. Unknown values are never treated as zero.`;
 }
 
-// ---------- events ----------
-$("modelSel").addEventListener("change", e => { state.model = e.target.value; render(); });
+// ---------- static sections (from data, rendered once) ----------
+function renderHarnessRefs() {
+  const d = state.data;
+  let html = "";
+  // Pi: per-core-model totals present in piTotalsByCoreModel
+  const piModels = Object.entries(d.piTotalsByCoreModel || {});
+  if (piModels.length) {
+    const totN = piModels.reduce((s, [, v]) => s + v.n, 0);
+    const totIn = piModels.reduce((s, [, v]) => s + v.input, 0);
+    const totOut = piModels.reduce((s, [, v]) => s + v.output, 0);
+    html += `<table class="ref-table"><thead><tr><th>Pi (per core model)</th><th class="num">Requests</th><th class="num">Logical input tokens</th><th class="num">Output tokens</th></tr></thead><tbody>` +
+      piModels.map(([m, v]) => `<tr><td>${esc(m)}</td><td class="num">${v.n.toLocaleString()}</td><td class="num">${fmtTok(v.input)}</td><td class="num">${fmtTok(v.output)}</td></tr>`).join("") +
+      `<tr style="font-weight:600"><td>Pi total</td><td class="num">${totN.toLocaleString()}</td><td class="num">${fmtTok(totIn)}</td><td class="num">${fmtTok(totOut)}</td></tr></tbody></table>`;
+  } else {
+    html += `<p class="note">No Pi totals present in this dataset.</p>`;
+  }
+  const oc = d.harnessReferences.openCode, cl = d.harnessReferences.cline;
+  if (oc) html += `<p class="note"><b>OpenCode</b> — logical input ${fmtTok(oc.logicalInputTokens)} · cost $${oc.costUsd.toFixed(2)}<br><span class="dim">${esc(oc.note || "")} Source: <code>${esc(oc.source)}</code></span></p>`;
+  if (cl) html += `<p class="note"><b>Cline</b> — logical input ${fmtTok(cl.logicalInputTokens)} · ${cl.taskCount} tasks · ${esc(cl.dateRange || "range n/a")}<br><span class="dim">${esc(cl.note || "")} Source: <code>${esc(cl.source)}</code></span></p>`;
+  html += `<p class="note" style="color:#fbbf24">These are reference totals and are NOT additive to LM Studio totals. ${esc(d.harnessReferences.note || "")}</p>`;
+  $("harnessRefs").innerHTML = html;
+}
+
+function renderDiagnostics() {
+  const d = state.data.diagnostics, at = state.data.attribution;
+  const rows = [
+    ["Pi events seen", d.piEventsTotal],
+    ["Parsed Pi files", (d.parsedPiFiles || []).length ? (d.parsedPiFiles).map(esc).join(", ") : "—"],
+    ["Joined to LM Studio records", d.joined],
+    ["Ambiguous joins", d.ambiguous],
+    ["Unmatched Pi events", d.unmatched],
+    ["Validation overlap", d.validationOverlap],
+    ["Overlap agree / disagree", `${d.overlapAgree} / ${d.overlapDisagree}`],
+    ["Model conflicts", d.modelConflicts],
+    ["Timestamp conflicts", d.timestampConflicts],
+    ["Cache-derived records", d.cacheDerivedCount],
+  ];
+  let html = `<table><tbody>` + rows.map(([k, v]) => `<tr><td style="width:240px">${k}</td><td>${typeof v === "number" ? v.toLocaleString() : esc(String(v))}</td></tr>`).join("") + `</tbody></table>
+    <p class="note"><b>Attribution:</b> provider ${esc(at.provider)} · Pi session dirs parsed: ${(at.piSessionDirsParsed || []).map(esc).join(", ") || "—"}<br>${esc(at.note || "")}</p>`;
+  $("diagnosticsBody").innerHTML = html;
+}
+
+// ---------- filter controls ----------
+function buildControls() {
+  const R = state.data.records;
+  // Session (sessionClass values present in data)
+  const sessions = [...new Set(R.map(r => r.sessionClass).filter(v => v != null))];
+  $("sessionSel").innerHTML = `<option value="__all__">All sessions (${sessions.length})</option>` +
+    sessions.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
+  // Pi session — only if present in data
+  const piVals = [...new Set(R.map(r => r.harness).filter(v => v != null))];
+  if (piVals.length) {
+    $("piSlot").innerHTML = `<label>Pi session <select id="piSel"></select></label>`;
+    const sel = $("piSel");
+    sel.innerHTML = `<option value="__all__">All Pi sessions</option>` + piVals.map(v => `<option value="${esc(String(v))}">${esc(String(v))}</option>`).join("");
+    sel.addEventListener("change", e => { state.piSession = e.target.value; render(); });
+  } else {
+    $("piSlot").innerHTML = `<span class="dim" style="font-size:13px">Pi session: none in this dataset (0 attributed requests)</span>`;
+  }
+  // Model dropdown by total tokens desc
+  const agg = new Map();
+  for (const r of R) {
+    const k = modelKey(r);
+    let e = agg.get(k); if (!e) { e = { in: 0, out: 0 }; agg.set(k, e); }
+    if (r.evaluatedIn != null) e.in += r.evaluatedIn;
+    if (r.outTokens   != null) e.out += r.outTokens;
+  }
+  const ranked = [...agg.entries()].sort((x, y) => (y[1].in + y[1].out) - (x[1].in + x[1].out));
+  $("modelSel").innerHTML = `<option value="__all__">All models (${ranked.length})</option>` +
+    ranked.map(([m, e]) => `<option value="${esc(m)}">${esc(m)} — ${fmtTok(e.in + e.out)}</option>`).join("");
+
+  $("sessionSel").addEventListener("change", e => { state.session = e.target.value; render(); });
+  $("modelSel").addEventListener("change", e => { state.model = e.target.value; render(); });
+}
+
+// ---------- load & boot ----------
+function showBanner(msg) { const b = $("errorBanner"); b.style.display = "block"; b.textContent = msg; }
+
+async function load() {
+  const res = await fetch("data/usage-v3.json", { cache: "no-store" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  state.data = await res.json();
+  if (state.data.version !== 3) throw new Error("expected usage-v3 contract, got version " + state.data.version);
+
+  // rates from the dataset (defaults for the pricing controls)
+  const rp = state.data.ratesPerM;
+  state.prices.input = rp.input; state.prices.cached = rp.cached; state.prices.output = rp.output;
+  $("pIn").value = rp.input; $("pCached").value = rp.cached; $("pOut").value = rp.output;
+
+  buildControls();
+  renderHarnessRefs();
+  renderDiagnostics();
+
+  const R = state.data.records;
+  const tsMin = Math.min(...R.map(r => r.ts)), tsMax = Math.max(...R.map(r => r.ts));
+  $("dataMeta").textContent = `${localDateStr(tsMin)} → ${localDateStr(tsMax)} · ${R.length.toLocaleString()} requests · parsed ${new Date(state.data.generatedAt).toLocaleString()}`;
+
+  const foot = state.data;
+  $("foot").innerHTML = `Source: <code>${esc(foot.sourceDir)}</code> (LM Studio server logs) · base artifact ${esc(foot.baseArtifact)} · join window ${foot.joinWindowMs} ms · agreement tolerance ${foot.agreementRelTolerance} · generated ${new Date(foot.generatedAt).toISOString()}<br>
+    Rates from dataset: input $${rp.input}/M · cached $${rp.cached}/M · output $${rp.output}/M. Serve this folder with <code>node server.mjs</code>; open <code>/</code> (index.html).`;
+
+  render();
+  document.title = "V3-READY";
+}
+
+// pricing controls
+for (const [id, key] of [["pIn","input"],["pCached","cached"],["pOut","output"]]) {
+  $(id).addEventListener("change", e => {
+    const v = parseFloat(e.target.value);
+    if (!isNaN(v) && v >= 0) { state.prices[key] = v; render(); }
+  });
+}
+
 $("granSeg").addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return;
   state.gran = b.dataset.g;
   document.querySelectorAll("#granSeg button").forEach(x => x.classList.toggle("active", x === b));
   render();
 });
-for (const [id, key] of [["pIn","in"],["pOut","out"],["pCached","cached"]]) {
-  $(id).addEventListener("change", e => {
-    const v = parseFloat(e.target.value);
-    if (!isNaN(v) && v >= 0) state.prices[key] = v;
-    render();
-  });
-}
-$("refreshBtn").addEventListener("click", () => load().catch(err => alert("Refresh failed: " + err.message)));
 
-// restore prices
-try { Object.assign(state.prices, JSON.parse(localStorage.getItem("lms-prices") || "{}")); } catch {}
-for (const [id, key] of [["pIn","in"],["pOut","out"],["pCached","cached"]]) $(id).value = state.prices[key];
-document.addEventListener("change", e => { if (e.target.id.startsWith("p")) localStorage.setItem("lms-prices", JSON.stringify(state.prices)); });
+window.addEventListener("error", e => console.error("PAGE ERROR:", e.message));
 
-load().catch(err => { $("dataMeta").textContent = "Failed to load data/usage.json — run: node parse.mjs"; console.error(err); });
+load().catch(err => {
+  $("dataMeta").textContent = "Failed to load data/usage-v3.json — serve this folder with: node server.mjs";
+  showBanner("Load failed: " + err.message);
+  console.error(err);
+});
 </script>
 </body>
 </html>
