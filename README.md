@@ -25,10 +25,10 @@ Then open **http://localhost:8787**. After LM Studio writes more logs, re-run `n
 |---|---|
 | Model dropdown | Filter every panel/chart to one model (or all) |
 | Granularity | Day / Week / Month / Year buckets, gaps shown as zero |
-| Trend chart | Stacked input+output bars + 7-period moving average line |
+| Trend chart | Stacked input+output bars per period (gaps shown as zero) |
 | Trend KPI | Last *complete* period vs previous (▲/▼ %) |
-| Most used models | Ranking by tokens with request counts, share bar, est. cost — click a row to filter |
-| Prices | Editable per-1M-token rates: input **$4.40**, output **$22.00**, cached **$0.44** (persisted in localStorage) |
+| Most used models | Ranking by tokens with request counts, share bar, est. cost (filter the whole dashboard via the Model dropdown above) |
+| Prices | Editable per-1M-token input (**$4.40**) and output (**$22.00**) rates — no cache-rate field, since the v3 cache-decomposition joiner is retired |
 
 ## Where the data comes from
 
@@ -45,6 +45,12 @@ LM Studio has no usage database — token counts only exist in its server logs w
 
 ## Accuracy notes
 
+- **New accounting basis (v1).** `parse.mjs` produces a fresh, reproducible accounting basis straight
+  from the LM Studio server logs. The retired v3 cache-decomposition joiner was removed deliberately and is
+  NOT reimplemented, so **the canonical series is not numerically continuous with the frozen `usage-v3.json`
+  snapshot.** Do not diff new values against the old v3 numbers as if they were the same metric: token volume
+  is conserved (within ~0.5% in the comparable period), but *request counts* can diverge because request
+  grouping/attribution changed. Historical values may differ; equivalence is intentionally not forced.
 - **Model attribution** is best-effort (~98% accurate on this machine): it's only ambiguous when two
   models run concurrently in different slots.
 - **Cached tokens are not recorded** by LM Studio logs, so cached cost shows $0. For exact numbers
@@ -60,6 +66,6 @@ parse.mjs        log scanner -> data/usage.json   [node parse.mjs <srcDir> <outF
 server.mjs       zero-dependency static server    [node server.mjs <port=8787>]
 index.html       dashboard (vanilla JS + vendored Chart.js, works offline)
 vendor/chart.umd.min.js
-data/usage.json  generated: [[tsMs, model, promptTokens, completionTokens], ...]
+data/usage.json  generated (canonical v1): { version:1, records:[{ ts, model|null, evaluatedIn, outTokens }] }
 run.bat          parse + serve + open browser
 ```

@@ -10,7 +10,8 @@
   "scripts": {
     "parse": "node parse.mjs",
     "serve": "node server.mjs",
-    "start": "node parse.mjs && node server.mjs"
+    "start": "node parse.mjs && node server.mjs",
+    "test": "node --test"
   },
   "engines": {
     "node": ">=16"

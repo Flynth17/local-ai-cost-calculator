@@ -74,10 +74,6 @@
 <div class="warn-banner" id="errorBanner"></div>
 
 <section class="controls">
-  <label>Session
-    <select id="sessionSel"></select>
-  </label>
-  <span id="piSlot"></span>
   <label>Model
     <select id="modelSel"></select>
   </label>
@@ -90,13 +86,11 @@
 </section>
 
 <section class="kpis">
-  <div class="kpi"><div class="label">Total requests</div><div class="value" id="kReq">–</div><div class="sub" id="kReqSub"></div></div>
+  <div class="kpi"><div class="label">Total requests</div><div class="value" id="kReq">–</div><div class="sub">from LM Studio server logs (timing lines)</div></div>
   <div class="kpi"><div class="label">Measured tokens</div><div class="value" id="kMeas">–</div><div class="sub">evaluated input + output (measured only)</div></div>
   <div class="kpi"><div class="label">GPU-evaluated input</div><div class="value" id="kEval">–</div><div class="sub">tokens actually computed on GPU</div></div>
   <div class="kpi"><div class="label">Output tokens</div><div class="value" id="kOut">–</div><div class="sub">generated</div></div>
   <div class="kpi"><div class="label">Estimated workload cost &gt;=</div><div class="value" id="kCostLB">–</div><div class="sub">useful whole-workload lower bound — all measured tokens at full rates, no cache credit for unknown historical data</div></div>
-  <div class="kpi"><div class="label">Exact cache-aware cost</div><div class="value" id="kCostEx">–</div><div class="sub" id="kCostExSub"></div></div>
-  <div class="kpi"><div class="label">Exact logical-input coverage</div><div class="value" id="kCov">–</div><div class="sub" id="kCovSub"></div></div>
 </section>
 
 <section class="panel">
@@ -111,63 +105,46 @@
   <div class="chart-wrap"><canvas id="costChart"></canvas></div>
 </section>
 
+<section class="panel">
+  <h2>Pricing (per 1M tokens)</h2>
+  <div class="price-row">
+    <label>Input $<input id="pIn" type="number" step="0.01" min="0"></label>
+    <label>Output $<input id="pOut" type="number" step="0.01" min="0"></label>
+  </div>
+</section>
+
 <div class="two-col">
   <section class="panel">
     <h2>Most used models — <span id="modelsTitle"></span></h2>
-    <p class="hint">Input = GPU-evaluated input · Output = generated tokens · Tokens = Input + Output · Share = model tokens / filtered total tokens · Est. cost &gt;= at current rates. Click a row for exact (covered-subset) details.</p>
+    <p class="hint">Input = GPU-evaluated input · Output = generated tokens · Tokens = Input + Output · Share = model tokens / filtered total tokens · Est. cost &gt;= at current rates.</p>
     <table id="modelTable">
       <thead><tr>
         <th>#</th><th>Model</th>
         <th class="num">Requests</th><th class="num">Input</th><th class="num">Output</th><th class="num">Tokens</th>
-        <th style="width:16%">Share</th><th class="num">Est. cost &gt;=</th><th></th>
+        <th style="width:16%">Share</th><th class="num">Est. cost &gt;=</th>
       </tr></thead>
       <tbody></tbody>
     </table>
   </section>
-
-  <section class="panel">
-    <h2>Accounting — pricing (per 1M tokens)</h2>
-    <div class="price-row">
-      <label>Input $<input id="pIn" type="number" step="0.01" min="0"></label>
-      <label>Cached $<input id="pCached" type="number" step="0.01" min="0"></label>
-      <label>Output $<input id="pOut" type="number" step="0.01" min="0"></label>
-    </div>
-    <table id="acctTable">
-      <thead><tr><th>Covered subset (exact logical context)</th><th class="num">Tokens</th><th class="num">Rate</th><th class="num">Cost</th></tr></thead>
-      <tbody></tbody>
-    </table>
-    <div class="note" id="acctNote"></div>
-  </section>
 </div>
-
-<section class="panel">
-  <h2>Harness logical-context totals — reference only</h2>
-  <p class="hint">These are reference totals and are NOT additive to LM Studio totals. Values taken verbatim from usage-v3.json; not joined into request records.</p>
-  <div id="harnessRefs"></div>
-</section>
-
-<details class="panel" id="diagPanel">
-  <summary>Diagnostics &amp; attribution (collapsed)</summary>
-  <div id="diagnosticsBody" style="margin-top:12px"></div>
-</details>
 
 <footer id="foot"></footer>
 
 <script>
 "use strict";
 /* ============================================================
- * v3 preview dashboard — clean rebuild on data/usage-v3.json.
+ * Local AI Cost Calculator dashboard — canonical v1 contract.
+ * Data:  data/usage.json = { version:1, records:[{ ts, model|null, evaluatedIn, outTokens }] }
  * All headline numbers are computed from the records at runtime;
- * nothing is hardcoded. Rates default to data.ratesPerM.
+ * nothing is hardcoded. Rates default to input $4.40/M, output $22.00/M.
+ * Only measured GPU-evaluated input + output tokens are used (no cache-hit
+ * accounting for unknown historical data). No Pi-session join fields required.
  * ========================================================== */
 const state = {
   data: null,
   gran: "day",
-  session: "__all__",
-  piSession: "__all__",
   model: "__all__",
   prices: { input: 4.40, cached: 0.44, output: 22.00 },
-  expanded: new Set(),
 };
 let tokensChart = null;
 let costChart = null;
@@ -212,64 +189,25 @@ function bucketLabel(key) {
 // ---------- filtering & aggregation ----------
 function filteredRecords() {
   const R = state.data.records;
-  if (state.session === "__all__" && state.piSession === "__all__" && state.model === "__all__") return R;
-  return R.filter(r =>
-    (state.session   === "__all__" || r.sessionClass === state.session) &&
-    (state.piSession === "__all__" || (r.harness != null && String(r.harness) === state.piSession)) &&
-    (state.model     === "__all__" || (r.model == null ? "(unknown)" : r.model) === state.model)
-  );
+  if (state.model === "__all__") return R;
+  // Canonical records carry only a model name or null (explicit unknown); no
+  // Pi-session attribution fields, so filtering is by model alone.
+  return R.filter(r => (r.model == null ? "(unknown)" : r.model) === state.model);
 }
 
-/* Aggregate a record set. Token sums treat missing values as absent (0).
- * Exact-logical fields are only summed where decomposition is valid:
- * logicalInputExact === true AND logicalIn != null. Unknowns stay unknown —
- * never coerced to zero. */
+/* Aggregate a record set: request count + measured-token sums.
+ * Only evaluatedIn (GPU prompt-eval) and outTokens are summed; missing values
+ * are treated as absent (0). No cache-decomposition fields exist in the v1 data. */
 function aggregate(recs) {
-  const a = { n: 0, evalIn: 0, outTok: 0, exactN: 0, declaredN: 0, exactLogicalIn: 0, derivedCached: 0 };
+  const a = { n: 0, evalIn: 0, outTok: 0 };
   for (const r of recs) {
     a.n++;
     if (r.evaluatedIn != null) a.evalIn += r.evaluatedIn;
     if (r.outTokens   != null) a.outTok += r.outTokens;
-    if (typeof r.logicalInputExact === "boolean") a.declaredN++;
-    if (r.logicalInputExact === true && r.logicalIn != null) {
-      a.exactN++;
-      a.exactLogicalIn += r.logicalIn;
-    }
-    if (r.cachedIn != null) a.derivedCached += r.cachedIn; // derived cached input, where present
   }
   return a;
 }
 
-/* Exact cache-aware cost over the covered subset, at current rates:
- *   evaluated portion (logicalIn - cachedIn) × inputRate
- * + derived cached    (cachedIn)            × cachedRate
- * + exact-record output (outTokens)         × outputRate
- * Only where decomposition is valid. */
-function exactCostOf(recs) {
-  const p = state.prices;
-  let cost = 0, coveredOut = 0, evaluatedPortion = 0, derivedCached = 0, n = 0;
-  for (const r of recs) {
-    if (!(r.logicalInputExact === true && r.logicalIn != null)) continue;
-    const c = r.cachedIn != null ? r.cachedIn : 0;
-    evaluatedPortion += r.logicalIn - c;
-    derivedCached += c;
-    coveredOut += (r.outTokens != null ? r.outTokens : 0);
-    cost += ((r.logicalIn - c) * p.input + c * p.cached + (r.outTokens != null ? r.outTokens : 0) * p.output) / 1e6;
-    n++;
-  }
-  return { cost, coveredOut, evaluatedPortion, derivedCached, n };
-}
-
-/* Per-model coverage display. Never coerce unknown to zero:
- *   - some exact records            -> "X.X%"
- *   - zero exact, all declared      -> "0.0% (verified)"
- *   - otherwise (flags missing)     -> "unknown" */
-function coverageDisplay(m) {
-  if (m.n === 0) return "unknown";
-  if (m.exactN > 0) return (100 * m.exactN / m.n).toFixed(1) + "%";
-  if (m.declaredN === m.n) return "0.0% (verified)";
-  return "unknown";
-}
 
 function modelKey(r) { return r.model == null ? "(unknown)" : r.model; }
 
@@ -371,8 +309,6 @@ function renderCostChart(buckets) {
 function filterSummary() {
   const parts = [];
   if (state.model !== "__all__") parts.push(state.model);
-  if (state.session !== "__all__") parts.push("session: " + state.session);
-  if (state.piSession !== "__all__") parts.push("Pi session: " + state.piSession);
   return parts.length ? parts.join(" · ") : "all data";
 }
 
@@ -380,21 +316,14 @@ function render() {
   const recs = filteredRecords();
   const a = aggregate(recs);
   const p = state.prices;
-  const exact = exactCostOf(recs);
 
-  // KPIs (filtered set)
+  // KPIs (filtered set): request count + measured tokens + whole-workload cost lower bound.
   $("kReq").textContent = a.n.toLocaleString();
-  $("kReqSub").textContent = `${a.exactN} with exact logical input`;
   $("kMeas").textContent = fmtTok(a.evalIn + a.outTok);
   $("kEval").textContent = fmtTok(a.evalIn);
   $("kOut").textContent = fmtTok(a.outTok);
   const costLB = (a.evalIn * p.input + a.outTok * p.output) / 1e6;
   $("kCostLB").textContent = fmtMoney(costLB);
-  $("kCostEx").textContent = exact.n > 0 ? fmtMoney(exact.cost) : "—";
-  $("kCostExSub").textContent = `covered subset only — ${exact.n.toLocaleString()} requests with valid decomposition`;
-  const covPct = a.n > 0 ? (100 * a.exactN / a.n).toFixed(2) + "%" : "—";
-  $("kCov").textContent = covPct;
-  $("kCovSub").textContent = `${a.exactN.toLocaleString()} of ${a.n.toLocaleString()} requests`;
 
   // charts
   const buckets = buildBuckets(recs);
@@ -403,26 +332,19 @@ function render() {
   $("tokensTitle").textContent = `${filterSummary()} · per ${state.gran}`;
   $("costTitle").textContent = `${filterSummary()} · per ${state.gran}`;
 
-  renderModelTable(recs, a);
-  renderAccounting(exact, a);
+  renderModelTable(recs);
 }
 
-function renderModelTable(recs, totalAgg) {
+function renderModelTable(recs) {
   const p = state.prices;
   const byModel = new Map();
   for (const r of recs) {
     const k = modelKey(r);
     let m = byModel.get(k);
-    if (!m) { m = { n: 0, evalIn: 0, outTok: 0, exactN: 0, declaredN: 0, exactLogicalIn: 0, derivedCached: 0 }; byModel.set(k, m); }
+    if (!m) { m = { n: 0, evalIn: 0, outTok: 0 }; byModel.set(k, m); }
     m.n++;
     if (r.evaluatedIn != null) m.evalIn += r.evaluatedIn;
     if (r.outTokens   != null) m.outTok += r.outTokens;
-    if (typeof r.logicalInputExact === "boolean") m.declaredN++;
-    if (r.logicalInputExact === true && r.logicalIn != null) {
-      m.exactN++;
-      m.exactLogicalIn += r.logicalIn;
-      if (r.cachedIn != null) m.derivedCached += r.cachedIn;
-    }
   }
   const ranked = [...byModel.entries()].sort((x, y) => (y[1].evalIn + y[1].outTok) - (x[1].evalIn + x[1].outTok));
   const totalTokens = a_totalTokens(ranked);
@@ -433,27 +355,7 @@ function renderModelTable(recs, totalAgg) {
     const tokens = m.evalIn + m.outTok;
     const share = totalTokens > 0 ? (100 * tokens / totalTokens) : NaN;
     const cost = (m.evalIn * p.input + m.outTok * p.output) / 1e6;
-    const open = state.expanded.has(name);
-    // exact covered-subset cost for this model
-    let exCostHtml;
-    if (m.exactN > 0) {
-      let c = 0;
-      for (const r of recs) {
-        if (modelKey(r) !== name || !(r.logicalInputExact === true && r.logicalIn != null)) continue;
-        const cached = r.cachedIn != null ? r.cachedIn : 0;
-        c += ((r.logicalIn - cached) * p.input + cached * p.cached + (r.outTokens != null ? r.outTokens : 0) * p.output) / 1e6;
-      }
-      exCostHtml = fmtMoney(c);
-    } else if (m.declaredN === m.n && m.n > 0) {
-      exCostHtml = "$0.00 <span class='dim'>(no covered requests)</span>";
-    } else {
-      exCostHtml = "unknown";
-    }
-    const cov = coverageDisplay(m);
-    const exactInHtml = m.exactN > 0 ? fmtTok(m.exactLogicalIn) : (m.declaredN === m.n && m.n > 0 ? "0 <span class='dim'>(verified)</span>" : "unknown");
-    const cachedHtml = m.derivedCached > 0 ? fmtTok(m.derivedCached) : (m.exactN > 0 || (m.declaredN === m.n && m.n > 0) ? "0" : "unknown");
-
-    return `<tr class="model-row ${open ? "open" : ""}" data-model="${esc(name)}">
+    return `<tr class="model-row" data-model="${esc(name)}">
       <td>${i + 1}</td>
       <td><span class="model-name" title="${esc(name)}">${esc(name)}</span></td>
       <td class="num">${m.n.toLocaleString()}</td>
@@ -462,104 +364,17 @@ function renderModelTable(recs, totalAgg) {
       <td class="num">${fmtTok(tokens)}</td>
       <td><div class="share-bar" style="width:${Math.max(2, isNaN(share) ? 0 : share)}%"></div><span class="dim" style="font-size:11px">${isNaN(share) ? "—" : share.toFixed(1) + "%"}</span></td>
       <td class="num">${fmtMoney(cost)}</td>
-      <td><span class="chev">▸</span></td>
-    </tr>
-    ${open ? `<tr class="detail-row"><td colspan="9"><div class="detail-grid">
-        <div><div class="dlabel">Exact cost (covered)</div><div class="dvalue">${exCostHtml}</div></div>
-        <div><div class="dlabel">Coverage</div><div class="dvalue">${cov}</div></div>
-        <div><div class="dlabel">Exact logical input</div><div class="dvalue">${exactInHtml}</div></div>
-        <div><div class="dlabel">Derived cached input</div><div class="dvalue">${cachedHtml}</div></div>
-      </div></td></tr>` : ""}`;
+    </tr>`;
   }).join("");
-
-  tbody.querySelectorAll("tr.model-row").forEach(tr => {
-    tr.addEventListener("click", () => {
-      const name = tr.dataset.model;
-      if (state.expanded.has(name)) state.expanded.delete(name); else state.expanded.add(name);
-      render(); // re-render table with expanded state
-    });
-  });
 }
 
 function a_totalTokens(ranked) { return ranked.reduce((s, [, m]) => s + m.evalIn + m.outTok, 0); }
 
-function renderAccounting(exact, a) {
-  const p = state.prices;
-  const rows = [
-    ["Evaluated portion (logical − cached)", exact.evaluatedPortion, p.input],
-    ["Derived cached input",                exact.derivedCached,     p.cached],
-    ["Exact-record output",                 exact.coveredOut,        p.output],
-  ];
-  let total = 0;
-  $("acctTable").querySelector("tbody").innerHTML = rows.map(([name, tok, rate]) => {
-    const c = tok * rate / 1e6; total += c;
-    return `<tr><td>${name}</td><td class="num">${fmtTok(tok)}</td><td class="num">$${rate.toFixed(2)}/M</td><td class="num">${fmtMoney(c)}</td></tr>`;
-  }).join("") + `<tr style="font-weight:600"><td>Exact cache-aware cost (covered subset)</td><td class="num"></td><td></td><td class="num">${exact.n > 0 ? fmtMoney(total) : "—"}</td></tr>`;
-  $("acctNote").innerHTML = `Formula, only where decomposition is valid (${a.exactN.toLocaleString()} requests with exact logical context):<br>
-    evaluated portion × inputRate + derived cached × cachedRate + exact-record output × outputRate.<br>
-    Requests without a verified cache split are excluded from this subset — they remain in the whole-workload lower bound. Unknown values are never treated as zero.`;
-}
-
-// ---------- static sections (from data, rendered once) ----------
-function renderHarnessRefs() {
-  const d = state.data;
-  let html = "";
-  // Pi: per-core-model totals present in piTotalsByCoreModel
-  const piModels = Object.entries(d.piTotalsByCoreModel || {});
-  if (piModels.length) {
-    const totN = piModels.reduce((s, [, v]) => s + v.n, 0);
-    const totIn = piModels.reduce((s, [, v]) => s + v.input, 0);
-    const totOut = piModels.reduce((s, [, v]) => s + v.output, 0);
-    html += `<table class="ref-table"><thead><tr><th>Pi (per core model)</th><th class="num">Requests</th><th class="num">Logical input tokens</th><th class="num">Output tokens</th></tr></thead><tbody>` +
-      piModels.map(([m, v]) => `<tr><td>${esc(m)}</td><td class="num">${v.n.toLocaleString()}</td><td class="num">${fmtTok(v.input)}</td><td class="num">${fmtTok(v.output)}</td></tr>`).join("") +
-      `<tr style="font-weight:600"><td>Pi total</td><td class="num">${totN.toLocaleString()}</td><td class="num">${fmtTok(totIn)}</td><td class="num">${fmtTok(totOut)}</td></tr></tbody></table>`;
-  } else {
-    html += `<p class="note">No Pi totals present in this dataset.</p>`;
-  }
-  const oc = d.harnessReferences.openCode, cl = d.harnessReferences.cline;
-  if (oc) html += `<p class="note"><b>OpenCode</b> — logical input ${fmtTok(oc.logicalInputTokens)} · cost $${oc.costUsd.toFixed(2)}<br><span class="dim">${esc(oc.note || "")} Source: <code>${esc(oc.source)}</code></span></p>`;
-  if (cl) html += `<p class="note"><b>Cline</b> — logical input ${fmtTok(cl.logicalInputTokens)} · ${cl.taskCount} tasks · ${esc(cl.dateRange || "range n/a")}<br><span class="dim">${esc(cl.note || "")} Source: <code>${esc(cl.source)}</code></span></p>`;
-  html += `<p class="note" style="color:#fbbf24">These are reference totals and are NOT additive to LM Studio totals. ${esc(d.harnessReferences.note || "")}</p>`;
-  $("harnessRefs").innerHTML = html;
-}
-
-function renderDiagnostics() {
-  const d = state.data.diagnostics, at = state.data.attribution;
-  const rows = [
-    ["Pi events seen", d.piEventsTotal],
-    ["Parsed Pi files", (d.parsedPiFiles || []).length ? (d.parsedPiFiles).map(esc).join(", ") : "—"],
-    ["Joined to LM Studio records", d.joined],
-    ["Ambiguous joins", d.ambiguous],
-    ["Unmatched Pi events", d.unmatched],
-    ["Validation overlap", d.validationOverlap],
-    ["Overlap agree / disagree", `${d.overlapAgree} / ${d.overlapDisagree}`],
-    ["Model conflicts", d.modelConflicts],
-    ["Timestamp conflicts", d.timestampConflicts],
-    ["Cache-derived records", d.cacheDerivedCount],
-  ];
-  let html = `<table><tbody>` + rows.map(([k, v]) => `<tr><td style="width:240px">${k}</td><td>${typeof v === "number" ? v.toLocaleString() : esc(String(v))}</td></tr>`).join("") + `</tbody></table>
-    <p class="note"><b>Attribution:</b> provider ${esc(at.provider)} · Pi session dirs parsed: ${(at.piSessionDirsParsed || []).map(esc).join(", ") || "—"}<br>${esc(at.note || "")}</p>`;
-  $("diagnosticsBody").innerHTML = html;
-}
-
 // ---------- filter controls ----------
 function buildControls() {
   const R = state.data.records;
-  // Session (sessionClass values present in data)
-  const sessions = [...new Set(R.map(r => r.sessionClass).filter(v => v != null))];
-  $("sessionSel").innerHTML = `<option value="__all__">All sessions (${sessions.length})</option>` +
-    sessions.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
-  // Pi session — only if present in data
-  const piVals = [...new Set(R.map(r => r.harness).filter(v => v != null))];
-  if (piVals.length) {
-    $("piSlot").innerHTML = `<label>Pi session <select id="piSel"></select></label>`;
-    const sel = $("piSel");
-    sel.innerHTML = `<option value="__all__">All Pi sessions</option>` + piVals.map(v => `<option value="${esc(String(v))}">${esc(String(v))}</option>`).join("");
-    sel.addEventListener("change", e => { state.piSession = e.target.value; render(); });
-  } else {
-    $("piSlot").innerHTML = `<span class="dim" style="font-size:13px">Pi session: none in this dataset (0 attributed requests)</span>`;
-  }
-  // Model dropdown by total tokens desc
+  // Model dropdown by total tokens desc. Canonical records expose only a model
+  // name or null (explicit unknown); there is no Pi-session attribution to filter on.
   const agg = new Map();
   for (const r of R) {
     const k = modelKey(r);
@@ -571,7 +386,6 @@ function buildControls() {
   $("modelSel").innerHTML = `<option value="__all__">All models (${ranked.length})</option>` +
     ranked.map(([m, e]) => `<option value="${esc(m)}">${esc(m)} — ${fmtTok(e.in + e.out)}</option>`).join("");
 
-  $("sessionSel").addEventListener("change", e => { state.session = e.target.value; render(); });
   $("modelSel").addEventListener("change", e => { state.model = e.target.value; render(); });
 }
 
@@ -579,34 +393,41 @@ function buildControls() {
 function showBanner(msg) { const b = $("errorBanner"); b.style.display = "block"; b.textContent = msg; }
 
 async function load() {
-  const res = await fetch("data/usage-v3.json", { cache: "no-store" });
+  const res = await fetch("data/usage.json", { cache: "no-store" });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   state.data = await res.json();
-  if (state.data.version !== 3) throw new Error("expected usage-v3 contract, got version " + state.data.version);
 
-  // rates from the dataset (defaults for the pricing controls)
-  const rp = state.data.ratesPerM;
-  state.prices.input = rp.input; state.prices.cached = rp.cached; state.prices.output = rp.output;
-  $("pIn").value = rp.input; $("pCached").value = rp.cached; $("pOut").value = rp.output;
+  // Validate canonical v1 contract shape.
+  if (state.data.version !== 1 || !Array.isArray(state.data.records)) {
+    throw new Error("expected usage.json contract with version:1 and records[]");
+  }
+  for (const r of state.data.records) {
+    if (typeof r.ts !== "number" || typeof r.evaluatedIn !== "number" || typeof r.outTokens !== "number") {
+      throw new Error("record missing canonical fields (ts/evaluatedIn/outTokens): " + JSON.stringify(r));
+    }
+  }
+
+  // Default pricing (per 1M tokens); editable in the UI below.
+  state.prices.input = 4.40; state.prices.output = 22.00;
+  $("pIn").value = "4.40"; $("pOut").value = "22.00";
 
   buildControls();
-  renderHarnessRefs();
-  renderDiagnostics();
 
   const R = state.data.records;
   const tsMin = Math.min(...R.map(r => r.ts)), tsMax = Math.max(...R.map(r => r.ts));
   $("dataMeta").textContent = `${localDateStr(tsMin)} → ${localDateStr(tsMax)} · ${R.length.toLocaleString()} requests · parsed ${new Date(state.data.generatedAt).toLocaleString()}`;
 
   const foot = state.data;
-  $("foot").innerHTML = `Source: <code>${esc(foot.sourceDir)}</code> (LM Studio server logs) · base artifact ${esc(foot.baseArtifact)} · join window ${foot.joinWindowMs} ms · agreement tolerance ${foot.agreementRelTolerance} · generated ${new Date(foot.generatedAt).toISOString()}<br>
-    Rates from dataset: input $${rp.input}/M · cached $${rp.cached}/M · output $${rp.output}/M. Serve this folder with <code>node server.mjs</code>; open <code>/</code> (index.html).`;
+  $("foot").innerHTML = `Source: <code>${esc(foot.sourceDir)}</code> (LM Studio server logs) · measured GPU-evaluated input + output tokens only — no cache-hit accounting for unknown historical data.<br>
+    New canonical v1 accounting basis built directly on raw logs — figures are not directly comparable to any retired v3 export (token volume matches; request counts may differ).<br>
+    Rates from dataset: input $4.40/M · output $22.00/M. Serve this folder with <code>node server.mjs</code>; open <code>/</code> (index.html).`;
 
   render();
-  document.title = "V3-READY";
+  document.title = "Local AI Cost Calculator";
 }
 
 // pricing controls
-for (const [id, key] of [["pIn","input"],["pCached","cached"],["pOut","output"]]) {
+for (const [id, key] of [["pIn","input"],["pOut","output"]]) {
   $(id).addEventListener("change", e => {
     const v = parseFloat(e.target.value);
     if (!isNaN(v) && v >= 0) { state.prices[key] = v; render(); }
@@ -623,7 +444,7 @@ $("granSeg").addEventListener("click", e => {
 window.addEventListener("error", e => console.error("PAGE ERROR:", e.message));
 
 load().catch(err => {
-  $("dataMeta").textContent = "Failed to load data/usage-v3.json — serve this folder with: node server.mjs";
+  $("dataMeta").textContent = "Failed to load data/usage.json — serve this folder with: node server.mjs";
   showBanner("Load failed: " + err.message);
   console.error(err);
 });

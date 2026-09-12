@@ -9,7 +9,15 @@
  * Model attribution: nearest preceding [INFO][<model>] line (best effort;
  * ~98%+ accurate — only misattributes when 2 models run concurrently).
  *
- * Output: data/usage.json  { generatedAt, sourceDir, records: [[tsMs, model, promptTokens, completionTokens], ...] }
+ * Timezone: log timestamps are local system wall-clock; they are parsed as LOCAL
+ * time and converted to UTC instants, so every record ts is a proper UTC ISO-8601
+ * value (max(ts) <= generatedAt up to clock/skew tolerance). This v1 pipeline is a
+ * NEW reproducible accounting basis — its totals may differ from the retired v3
+ * snapshot because the v3 cache-decomposition joiner was deliberately removed.
+ *
+ * Output: data/usage.json (canonical v1 contract) —
+ *   { version:1, generatedAt, sourceDir, recordCount,
+ *     records: [ { ts, model|null, evaluatedIn, outTokens }, ... ] }
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -69,7 +77,11 @@ function parseFile(file, fileIdx) {
     totalLines++;
 
     const tsm = line.match(TS_RE);
-    if (tsm) lastTs = Date.UTC(+tsm[1].slice(0, 4), +tsm[1].slice(5, 7) - 1, +tsm[1].slice(8, 10), +tsm[2], +tsm[3], +tsm[4]);
+    // Log timestamps are timezone-naive LOCAL wall-clock (LM Studio records system-local time).
+    // Interpret the components as local time and convert to a true UTC epoch instant, so that
+    // the emitted .toISOString() values carry a correct 'Z' and can never drift ahead of generatedAt.
+    // (Under BST/GMT this subtracts/adds the offset; in GMT winter the offset is 0 so values are unchanged.)
+    if (tsm) lastTs = new Date(+tsm[1].slice(0, 4), +tsm[1].slice(5, 7) - 1, +tsm[1].slice(8, 10), +tsm[2], +tsm[3], +tsm[4]).getTime();
 
     const tm = line.match(TIMING_RE);
     if (tm) {
@@ -100,12 +112,16 @@ function parseFile(file, fileIdx) {
 
 files.forEach((f, i) => parseFile(f, i));
 
-// Serialize: [tsMs, model|null, promptTokens, completionTokens]
+// Serialize to canonical v1 object schema. Each record:
+//   { ts, model|null, evaluatedIn (GPU prompt-eval tokens), outTokens (generated tokens) }
+// null model stays explicit (best-effort attribution); evaluatedIn/outTokens are
+// directly measured timing values — no join-derived or cache fields are invented.
 const out = {
+  version: 1,
   generatedAt: new Date().toISOString(),
   sourceDir: SRC,
   recordCount: records.size,
-  records: [...records.values()],
+  records: [...records.values()].map(([tsMs, model, p, c]) => ({ ts: tsMs, model, evaluatedIn: p, outTokens: c })),
 };
 fs.mkdirSync(path.dirname(OUT), { recursive: true });
 fs.writeFileSync(OUT, JSON.stringify(out));
@@ -113,7 +129,7 @@ fs.writeFileSync(OUT, JSON.stringify(out));
 // Summary for sanity check
 const byModel = new Map();
 let tp = 0, tc = 0;
-for (const [ts, model, p, c] of out.records) {
+for (const { model, evaluatedIn: p, outTokens: c } of out.records) {
   const k = model || '(unknown)';
   const e = byModel.get(k) || [0, 0, 0];
   e[0]++; e[1] += p; e[2] += c;
