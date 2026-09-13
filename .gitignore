@@ -1,6 +1,9 @@
 # Generated usage data (contains local token/cost history — do not commit)
 data/*.json
 
+# Local cache-telemetry investigation (kept local, never committed)
+investigation/cache-telemetry/
+
 # Editor / OS noise
 .vscode/
 .idea/

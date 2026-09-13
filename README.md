@@ -36,8 +36,8 @@ LM Studio has no usage database — token counts only exist in its server logs w
 
 ```
 ~/.lmstudio/server-logs/<YYYY-MM>/<date>.N.log
-  [ts][DEBUG] ... print_timing: id S | task T | prompt eval time = X ms / N tokens   <- input (sent)
-  ...          print_timing: id S | task T |        eval time = X ms / M tokens      <- output (received)
+  [ts][DEBUG] ... print_timing: id S | task T | prompt eval time = X ms / N tokens   <- evaluatedIn (GPU-evaluated / cache-miss input)
+  ...          print_timing: id S | task T |        eval time = X ms / M tokens      <- outTokens (generated output)
 ```
 
 `parse.mjs` groups those lines per request and attributes the model from the nearest preceding
@@ -53,9 +53,12 @@ LM Studio has no usage database — token counts only exist in its server logs w
   grouping/attribution changed. Historical values may differ; equivalence is intentionally not forced.
 - **Model attribution** is best-effort (~98% accurate on this machine): it's only ambiguous when two
   models run concurrently in different slots.
-- **Cached tokens are not recorded** by LM Studio logs, so cached cost shows $0. For exact numbers
-  (including cache hits), capture `usage` from API responses (`stream_options: {"include_usage": true}`)
-  via a small proxy and merge it into `data/usage.json`.
+- **Cached / reused (logical) input is not recorded** by LM Studio logs, so only GPU-evaluated input
+  (`evaluatedIn`) and generated output (`outTokens`) are measured. Historical cachedInput is therefore
+  not reproducibly recoverable from the reproducible log source; cost is computed on this measurable
+  canonical basis, and cached-cost shows $0. For exact numbers (including cache hits), capture `usage`
+  from API responses (`stream_options: {"include_usage": true}`) via a small proxy and merge it into
+  `data/usage.json`.
 - **History depth**: only dates with debug timing lines are counted (on this machine: ~June 2026 onward).
 - Request bodies (including prompts) appear in the raw logs — keep that in mind if you share log files.
 
