@@ -10,11 +10,17 @@
  *     directly to a fixed set of safe absolute files; there is NO
  *     repository-directory traversal, so anything not on the list (including
  *     path-traversal attempts such as ../ or %2e%2e) is rejected with 404.
+ *   - The ingestion API (/refresh, /rebuild) is loopback-only like everything else,
+ *     accepts POST only, and resolves its corpus + data directories entirely
+ *     server-side (getCorpusDir() + HERE/data). It never reads a client-supplied
+ *     path and performs no command execution; responses contain counts only — no
+ *     absolute filesystem paths.
  */
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { refresh, getCorpusDir } from './import.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.argv[2] || process.env.PORT || 8787);
@@ -37,7 +43,13 @@ const ROUTES = {
   '/data/usage.json':         path.join(HERE, 'data', 'usage.json'),
 };
 
-export function createDashboardServer() {
+// Where usage.json + the import manifest live: the project's data/ dir — the same
+// location the dashboard reads via /data/usage.json. Never derived from client input.
+const DATA_DIR = path.join(HERE, 'data');
+
+export function createDashboardServer({ corpusDir = getCorpusDir(), dataDir = DATA_DIR } = {}) {
+  // Fixed internal locations for production. Tests may inject temp dirs to avoid
+  // touching the real corpus/data; client input never reaches these values.
   return http.createServer((req, res) => {
     try {
       const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
@@ -45,6 +57,17 @@ export function createDashboardServer() {
       // Normalise a trailing-slash path (never serve directory listings).
       let key = url.pathname;
       if (key.length > 1 && key.endsWith('/')) key = key.replace(/\/+$/, '');
+
+      // Ingestion API — loopback-only, POST only, fixed internal corpus location.
+      // Resolved entirely server-side; no client-supplied paths, no command exec.
+      if (key === '/refresh' || key === '/rebuild') {
+        if (req.method !== 'POST') {
+          res.writeHead(405, { 'Content-Type': 'application/json; charset=utf-8' });
+          return res.end(JSON.stringify({ error: 'method not allowed; use POST' }));
+        }
+        handleRefresh(res, key === '/rebuild', corpusDir, dataDir);
+        return;
+      }
 
       const file = ROUTES[key];
       if (!file) {
@@ -69,6 +92,42 @@ export function createDashboardServer() {
       res.end(String(e));
     }
   });
+}
+
+// ---------------------------------------------------------------------------
+// Ingestion API helpers (loopback-only; see security model above)
+// ---------------------------------------------------------------------------
+function sendJson(res, status, obj) {
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(obj));
+}
+
+// Concise, path-free summary of a refresh result for the UI.
+function summarize(s) {
+  if (s.rebuildRequired) return `Full rebuild complete — ${s.recordsAdded.toLocaleString()} records across ${s.newSources} source(s).`;
+  if (s.newSources > 0) return `${s.newSources} new, ${s.changedSources} updated, ${s.unchangedSources} unchanged · ${s.recordsAdded.toLocaleString()} imported.`;
+  if (s.changedSources > 0) return `Rebuilt after ${s.changedSources} changed source(s).`;
+  if (s.missingSources > 0) return `${s.unchangedSources} unchanged, ${s.missingSources} source(s) missing on disk.`;
+  return `Up to date — no changes (${s.unchangedSources} sources unchanged).`;
+}
+
+// POST /refresh: inspect the corpus for changes since the persisted manifest and
+// process only what is necessary (idempotent). POST /rebuild: force a full rebuild.
+// The corpus + data directories are fixed server-side; concurrent callers share one
+// in-flight operation (see import.mjs).
+function handleRefresh(res, forceRebuild, corpusDir, dataDir) {
+  refresh({ src: corpusDir, dataDir, forceRebuild })
+    .then((s) => sendJson(res, 200, {
+      ok: true, rebuildRequired: s.rebuildRequired, newSources: s.newSources,
+      changedSources: s.changedSources, unchangedSources: s.unchangedSources,
+      missingSources: s.missingSources, recordsAdded: s.recordsAdded,
+      recordsReplaced: s.recordsReplaced, parsedFiles: s.parsedFiles, message: summarize(s),
+    }))
+    .catch((err) => {
+      // Never leak absolute filesystem paths to the browser.
+      console.error('refresh failed:', err);
+      sendJson(res, 500, { ok: false, error: 'refresh failed' });
+    });
 }
 
 const server = createDashboardServer();

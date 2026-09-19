@@ -53,6 +53,7 @@
   .price-row label { color: var(--dim); font-size: 13px; display: flex; align-items: center; gap: 6px; }
   .price-row input { width: 80px; background: #21262d; border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 5px 8px; font: inherit; text-align: right; }
   .note { color: var(--dim); font-size: 12px; margin-top: 10px; line-height: 1.55; }
+  button[disabled] { opacity: 0.5; cursor: not-allowed; }
   footer { color: var(--dim); font-size: 12px; margin-top: 4px; line-height: 1.7; }
   code { background: #21262d; border-radius: 4px; padding: 1px 5px; font-size: 12px; }
   .ref-table td, .ref-table th { white-space: normal; }
@@ -83,6 +84,8 @@
     <button data-g="month">Month</button>
     <button data-g="year">Year</button>
   </div>
+  <button id="refreshBtn" title="Re-import only new or changed logs since the last import">Refresh data</button>
+  <span id="refreshStatus" class="meta"></span>
 </section>
 
 <section class="kpis">
@@ -425,6 +428,46 @@ async function load() {
   render();
   document.title = "Local AI Cost Calculator";
 }
+
+// Re-fetch usage.json after a refresh and re-render without touching the editable
+// pricing inputs (unlike load(), which resets them to defaults).
+async function refreshUsage() {
+  const res = await fetch("data/usage.json", { cache: "no-store" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  if (data.version !== 1 || !Array.isArray(data.records)) {
+    throw new Error("unexpected usage.json contract");
+  }
+  state.data = data;
+  buildControls();
+  render();
+  const R = data.records;
+  const tsMin = Math.min(...R.map(r => r.ts)), tsMax = Math.max(...R.map(r => r.ts));
+  $("dataMeta").textContent = `${localDateStr(tsMin)} → ${localDateStr(tsMax)} · ${R.length.toLocaleString()} requests · parsed ${new Date(data.generatedAt).toLocaleString()}`;
+}
+
+// Refresh data: POST /refresh, report what happened, then reload the usage data.
+$("refreshBtn").addEventListener("click", async () => {
+  const btn = $("refreshBtn");
+  if (btn.disabled) return; // prevent accidental duplicate submissions
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = "Refreshing…";
+  $("refreshStatus").textContent = "Inspecting corpus for changes since the last import…";
+  try {
+    const res = await fetch("/refresh", { method: "POST" });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+    $("refreshStatus").textContent = body.message;
+    await refreshUsage();
+  } catch (err) {
+    $("refreshStatus").textContent = "Refresh failed: " + err.message;
+    showBanner("Refresh failed: " + err.message);
+  } finally {
+    btn.textContent = label;
+    btn.disabled = false;
+  }
+});
 
 // pricing controls
 for (const [id, key] of [["pIn","input"],["pOut","output"]]) {
