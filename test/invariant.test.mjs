@@ -15,7 +15,10 @@ const src = path.join(os.homedir(), ".lmstudio", "server-logs");
 test("max record ts <= generatedAt + small tolerance (parser emits true UTC instants)", () => {
   // Force the host timezone (Europe/London) so the local->UTC conversion is exercised exactly
   // as it runs in production. GeneratedAt is always true UTC regardless of TZ.
-  const r = spawnSync("node", ["parse.mjs", src, OUT], {
+  // Parse with a large old-space heap: the corpus is now multi-gigabyte and Node's
+  // default ~4 GB heap is insufficient. Use process.execPath + an explicit flag so the
+  // checked-in `npm test` path is viable without relying on an ambient NODE_OPTIONS.
+  const r = spawnSync(process.execPath, ["--max-old-space-size=8192", "parse.mjs", src, OUT], {
     cwd: process.cwd(),
     env: { ...process.env, TZ: "Europe/London" },
     encoding: "utf8",
