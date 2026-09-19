@@ -16,8 +16,9 @@ node parse.mjs     # scan ~/.lmstudio/server-logs -> data/usage.json
 node server.mjs    # serve dashboard on http://localhost:8787
 ```
 
-Then open **http://localhost:8787**. After LM Studio writes more logs, re-run `node parse.mjs` and hit
-**↻ Refresh** in the UI.
+Then open **http://localhost:8787**. After LM Studio writes more logs, just hit **↻ Refresh** in the UI — it
+ingests new logs incrementally (only new or changed files are re-parsed; unchanged files are skipped). Choose
+**Full rebuild** to re-parse everything from scratch. `node parse.mjs` still works for a one-off full export.
 
 ## What's shown
 
@@ -43,6 +44,22 @@ LM Studio has no usage database — token counts only exist in its server logs w
 `parse.mjs` groups those lines per request and attributes the model from the nearest preceding
 `[INFO][<model>]` log line.
 
+## Incremental ingestion (Refresh)
+
+The dashboard ingests logs incrementally instead of re-parsing the whole corpus every time:
+
+- `POST /refresh` scans `~/.lmstudio/server-logs`, compares against a manifest in `data/manifest.json`, and
+  only re-parses **new or changed** files. Changed files replace their old records (no duplicates), unchanged
+  files are skipped, and deleted files have their records removed. The result is written atomically to
+  `data/usage.json`.
+- `POST /rebuild` forces a full re-parse of the entire corpus.
+- Both endpoints accept **POST only** and return a small JSON status object (counts of new/changed/unchanged
+  sources, records added/replaced). Any other HTTP method returns `405`.
+
+The endpoint resolves its corpus + data locations internally; it never reads a path from the request, so query
+strings or traversal attempts cannot redirect where logs are read from. The dashboard server binds to loopback
+only (`127.0.0.1`).
+
 ## Accuracy notes
 
 - **New accounting basis (v1).** `parse.mjs` produces a fresh, reproducible accounting basis straight
@@ -66,7 +83,10 @@ LM Studio has no usage database — token counts only exist in its server logs w
 
 ```
 parse.mjs        log scanner -> data/usage.json   [node parse.mjs <srcDir> <outFile>]
-server.mjs       zero-dependency static server    [node server.mjs <port=8787>]
+import.mjs       incremental ingestion engine     [refresh({ src, dataDir, forceRebuild })]
+server.mjs       zero-dependency static server    [node server.mjs <port=8787>]  (loopback only)
+data/usage.json  generated (canonical v1): { version:1, records:[{ ts, model|null, evaluatedIn, outTokens, source }] }
+data/manifest.json  per-source ingest manifest (created by the first /refresh)
 index.html       dashboard (vanilla JS + vendored Chart.js, works offline)
 vendor/chart.umd.min.js
 data/usage.json  generated (canonical v1): { version:1, records:[{ ts, model|null, evaluatedIn, outTokens }] }
