@@ -195,7 +195,7 @@ function filteredRecords() {
   if (state.model === "__all__") return R;
   // Canonical records carry only a model name or null (explicit unknown); no
   // Pi-session attribution fields, so filtering is by model alone.
-  return R.filter(r => (r.model == null ? "(unknown)" : r.model) === state.model);
+  return R.filter(r => modelKey(r) === state.model);
 }
 
 /* Aggregate a record set: request count + measured-token sums.
@@ -212,7 +212,27 @@ function aggregate(recs) {
 }
 
 
-function modelKey(r) { return r.model == null ? "(unknown)" : r.model; }
+// Collapse variant spellings of the same base model into one bucket for the
+// "Most used models" ranking and dropdown. Strips a provider / full-path prefix,
+// any trailing @quant spec (e.g. @q4_k_xl), and repeated trailing quantization/
+// format suffix tokens (-awq-int4, -nvfp4-mtp, -a3b, -ud@q4_k_xl …). Version and
+// parameter size always precede the first such token, so they are preserved —
+// qwen3.8-27b variants merge while ornith-1.5 stays separate from ornith-1.0.
+const MODEL_SUFFIX = /(awq|int4|nvfp4|mtp|ud|a3b|a4b|a6b|qat|obliterated|low|it-ud|kquant|dynamic)/i;
+function normalizeModel(m) {
+  if (m == null) return "(unknown)";
+  let s = m;
+  const slash = s.lastIndexOf("/");
+  if (slash >= 0) s = s.slice(slash + 1);                 // last path segment
+  s = s.replace(/\.(gguf|bin|safetensors|pt|pth)$/i, "");  // strip file extension
+  s = s.replace(/@[a-z0-9_.]+$/i, "");                     // strip @q4_k_xl etc.
+  let prev;
+  do { prev = s; s = s.replace(new RegExp("-" + MODEL_SUFFIX.source + "$", "i"), ""); } while (s !== prev);
+  return s || "(unknown)";
+}
+
+// Bucket key for grouping: variant spellings collapse to the base model.
+function modelKey(r) { return normalizeModel(r.model); }
 
 // ---------- charts ----------
 function buildBuckets(recs) {
